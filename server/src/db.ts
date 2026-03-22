@@ -1,3 +1,12 @@
+/**
+ * @file 基于 sql.js（SQLite WASM）的数据访问层
+ * @description
+ * - 在 Node 中使用编译为 WebAssembly 的 SQLite，无需原生二进制依赖。
+ * - 通过 `?` 占位符与 `prepare`/`bind` 绑定参数，避免字符串拼接 SQL 导致的注入风险。
+ * - 持久化策略：内存中的 `Database` 在每次写操作（`run`）后 `export` 整库写入磁盘文件，
+ *   实现简单可靠的小型应用持久化（高并发写入场景需另行设计）。
+ */
+
 import initSqlJs, { Database as SqlJsDatabase } from 'sql.js'
 import path from 'path'
 import fs from 'fs'
@@ -7,11 +16,15 @@ const DB_PATH = path.join(DATA_DIR, 'devstudio.db')
 
 let db: SqlJsDatabase
 
+/**
+ * 初始化数据库：创建数据目录、加载 WASM、打开或新建库文件、执行建表与索引、首次持久化
+ */
 export async function initDB() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true })
   }
 
+  // initSqlJs 返回 SQL.js 模块，其上的 Database 构造函数用于打开内存库或从 Uint8Array 恢复
   const SQL = await initSqlJs()
 
   if (fs.existsSync(DB_PATH)) {
@@ -21,8 +34,10 @@ export async function initDB() {
     db = new SQL.Database()
   }
 
+  // 启用外键约束（SQLite 默认关闭，需显式 PRAGMA）
   db.run('PRAGMA foreign_keys = ON')
 
+  // 一次性执行 DDL：IF NOT EXISTS 保证重复启动幂等；ON DELETE CASCADE 级联删除子表
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,11 +89,18 @@ export async function initDB() {
   console.log('Database initialized at', DB_PATH)
 }
 
+/**
+ * 将当前内存数据库导出为二进制并同步写入磁盘，保证进程崩溃前最后一次写操作已落盘（仍非事务日志级保证）
+ */
 function persist() {
   const data = db.export()
   fs.writeFileSync(DB_PATH, Buffer.from(data))
 }
 
+/**
+ * 执行写操作（INSERT/UPDATE/DELETE）；参数通过数组绑定，勿将用户输入拼进 SQL 字符串
+ * @returns lastID 最后插入行 ROWID；changes 受影响行数（sql.js 语义）
+ */
 export function run(sql: string, params: any[] = []): { lastID: number; changes: number } {
   db.run(sql, params)
   const changes = db.getRowsModified()
@@ -88,6 +110,9 @@ export function run(sql: string, params: any[] = []): { lastID: number; changes:
   return { lastID, changes }
 }
 
+/**
+ * 查询单行：使用预编译语句 + bind，防止 SQL 注入
+ */
 export function get(sql: string, params: any[] = []): any | undefined {
   const stmt = db.prepare(sql)
   stmt.bind(params)
@@ -100,6 +125,9 @@ export function get(sql: string, params: any[] = []): any | undefined {
   return undefined
 }
 
+/**
+ * 查询多行：逐行 step，读完释放语句句柄
+ */
 export function all(sql: string, params: any[] = []): any[] {
   const stmt = db.prepare(sql)
   stmt.bind(params)

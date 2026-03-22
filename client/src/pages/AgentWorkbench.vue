@@ -1,4 +1,10 @@
 <script setup lang="ts">
+/**
+ * Agent 工作台（三栏布局骨架）
+ * - 左侧：对话列表与导航；中间：聊天（无对话时由 WelcomeOverlay 覆盖）
+ * - 右侧：代码预览（ChatPanel 内触发预览后 showPreview 为 true 时，通过 transition 展开）
+ * - showWelcome 用 computed 派生：无当前会话且无任何历史会话时展示欢迎层
+ */
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '@/stores/chat'
@@ -12,6 +18,7 @@ const chatStore = useChatStore()
 const auth = useAuthStore()
 const router = useRouter()
 
+/** 是否显示欢迎首屏：无激活会话且列表为空 */
 const showWelcome = computed(
   () => !chatStore.activeConversation && chatStore.conversations.length === 0
 )
@@ -19,7 +26,7 @@ const showWelcome = computed(
 
 <template>
   <div class="h-screen w-screen flex overflow-hidden bg-dark-950">
-    <!-- Agent Sidebar -->
+    <!-- 左侧边栏：会话列表、新建、跳转笔记、退出 -->
     <aside class="w-64 h-full flex flex-col glass-panel">
       <div class="p-4 border-b border-dark-700/50">
         <div class="flex items-center justify-between mb-4">
@@ -95,13 +102,19 @@ const showWelcome = computed(
       </div>
     </aside>
 
-    <!-- Main Content -->
+    <!-- 主区：欢迎层 或 聊天 + 可选预览 -->
     <main class="flex-1 flex overflow-hidden">
       <WelcomeOverlay v-if="showWelcome" />
 
       <template v-else>
         <ChatPanel class="flex-1 min-w-0" />
 
+        <!--
+          Vue <transition>：预览面板显隐时做过渡
+          - enter-active / leave-active：动画时长与缓动
+          - enter-from / leave-to：宽度与透明度，实现“滑入/收起”的侧栏效果
+          - 条件渲染在 v-if="chatStore.showPreview" 的包裹 div 上，避免空占位
+        -->
         <transition
           enter-active-class="transition-all duration-300 ease-out"
           enter-from-class="w-0 opacity-0"

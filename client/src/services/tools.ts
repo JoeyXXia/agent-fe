@@ -1,6 +1,18 @@
+/**
+ * 工具注册表 + 内置工具实现
+ *
+ * 设计模式：策略模式 —— 每个工具实现统一的 AgentTool 接口（name + execute）
+ *          注册表模式 —— 通过名称动态查找工具，支持运行时扩展
+ *
+ * 扩展方式：实现 AgentTool 接口 → 添加到 toolRegistry 数组 → 在 planTemplates 中配置调用时机
+ */
 import type { AgentTool, ToolResult, CodeBlock } from '@/types'
 import { componentTemplates } from './templates'
 
+// =============================================
+// 工具 1：组件生成器
+// 根据自然语言描述，从模板库中匹配最佳模板并生成完整的 Vue/React 组件代码
+// =============================================
 const generateComponent: AgentTool = {
   name: 'generateComponent',
   description: '根据自然语言描述生成前端组件代码',
@@ -16,9 +28,12 @@ const generateComponent: AgentTool = {
     const description = args.description as string
     const framework = (args.framework as string) || 'vue'
 
+    /** 从模板库中基于关键词匹配找到最佳模板 */
     const template = componentTemplates.findBestMatch(description, framework)
+    /** 调用模板的 generate 方法生成完整组件代码 */
     const code = template.generate(name, description)
 
+    /** 将代码封装为 CodeBlock 供 UI 预览面板使用 */
     const codeBlocks: CodeBlock[] = [
       {
         id: `cb_${Date.now()}`,
@@ -37,6 +52,10 @@ const generateComponent: AgentTool = {
   },
 }
 
+// =============================================
+// 工具 2：样式生成器
+// 根据描述生成 Tailwind utility classes 或原生 CSS
+// =============================================
 const generateStyles: AgentTool = {
   name: 'generateStyles',
   description: '生成组件样式代码',
@@ -51,6 +70,7 @@ const generateStyles: AgentTool = {
 
     const lowerDesc = description.toLowerCase()
 
+    /** 根据样式方案选择不同的生成策略 */
     let styleCode: string
     if (styleType === 'tailwind') {
       styleCode = generateTailwindClasses(lowerDesc)
@@ -74,6 +94,10 @@ const generateStyles: AgentTool = {
   },
 }
 
+// =============================================
+// 工具 3：代码分析器
+// 根据关键词匹配生成针对性的代码分析报告
+// =============================================
 const analyzeCode: AgentTool = {
   name: 'analyzeCode',
   description: '分析代码结构、性能和最佳实践',
@@ -93,6 +117,10 @@ const analyzeCode: AgentTool = {
   },
 }
 
+// =============================================
+// 工具 4：重构建议器
+// 输出通用的代码重构最佳实践建议
+// =============================================
 const refactorCode: AgentTool = {
   name: 'refactorCode',
   description: '提供代码重构建议和优化方案',
@@ -119,6 +147,10 @@ const refactorCode: AgentTool = {
   },
 }
 
+// =============================================
+// 辅助函数：Tailwind 样式类生成
+// 根据描述中的关键词（暗色/圆角/阴影/渐变/响应式）组合对应的 Tailwind classes
+// =============================================
 function generateTailwindClasses(desc: string): string {
   const classes: string[] = []
 
@@ -141,7 +173,7 @@ function generateTailwindClasses(desc: string): string {
   }
 
   if (desc.includes('响应式') || desc.includes('responsive')) {
-    classes.push('w-full md:w-1/2 lg:w-1/3')
+    classes.push('w-full md:w-1/2 lg:w-1/3') // 移动优先的响应式断点
   }
 
   classes.push('p-6 transition-all duration-200 hover:shadow-xl')
@@ -149,6 +181,7 @@ function generateTailwindClasses(desc: string): string {
   return `<!-- Tailwind CSS 样式方案 -->\n<div class="${classes.join(' ')}">\n  <!-- 内容区域 -->\n</div>`
 }
 
+/** 辅助函数：原生 CSS 代码生成 */
 function generateCSSCode(desc: string): string {
   return `.component {
   padding: 1.5rem;
@@ -165,6 +198,11 @@ function generateCSSCode(desc: string): string {
 }`
 }
 
+/**
+ * 辅助函数：代码分析报告生成
+ * 根据描述中的关键词（性能/组件/状态）动态组装分析主题
+ * 无匹配时提供通用代码质量分析
+ */
 function generateAnalysis(desc: string): string {
   const topics: string[] = []
 
@@ -195,6 +233,10 @@ function generateAnalysis(desc: string): string {
   return topics.join('\n\n')
 }
 
+/**
+ * 工具注册表 —— 导出给 AgentCore 使用
+ * AgentCore 构造时遍历此数组，存入内部 Map<name, tool>
+ */
 export const toolRegistry: AgentTool[] = [
   generateComponent,
   generateStyles,

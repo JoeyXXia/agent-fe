@@ -1,4 +1,13 @@
 <script setup lang="ts">
+/**
+ * 单条聊天消息气泡
+ * - 根据 role 区分用户 / 助手样式；助手消息可含思考过程、工具调用与 Markdown 风格正文
+ * - 使用 highlight.js 的 core + 按需 register 语言子模块，减小打包体并只高亮用到的语言
+ * - 正文通过 computed 生成 HTML 字符串，由 v-html 渲染；动态代码块上的「预览」用事件委托，避免为每段代码单独绑定监听器
+ *
+ * v-html 安全说明：内容来自服务端/Agent 返回；模板内已对代码做 escapeHtml 回退与高亮输出。
+ * 用户消息通常不含 HTML；若需严格 CSP，可改为仅信任白名单标签或使用 sanitizer。
+ */
 import { computed } from 'vue'
 import type { Message } from '@/types'
 import hljs from 'highlight.js/lib/core'
@@ -18,12 +27,20 @@ const props = defineProps<{
   message: Message
 }>()
 
+/** 声明向父组件抛出的事件：预览代码 + 语言标识 */
 const emit = defineEmits<{
   previewCode: [code: string, language: string]
 }>()
 
 const isUser = computed(() => props.message.role === 'user')
 
+/**
+ * 将原始 Markdown 风格文本转为可 v-html 的字符串：
+ * -  fenced 代码块：hljs.highlight；失败则 escapeHtml
+ * - 预览按钮：data-code（encodeURIComponent）与 data-lang，供父级点击委托解析
+ * - **粗体**、行内 `code`、换行转 <br />
+ * computed 缓存：仅当 message.content 等依赖变化时重算
+ */
 const renderedContent = computed(() => {
   let content = props.message.content
 
@@ -62,6 +79,10 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/**
+ * 事件委托：点击冒泡到气泡根节点，仅当目标为 .preview-btn 时读取 dataset 并 emit
+ * 这样 v-for 渲染的多条代码块无需每个按钮单独 @click
+ */
 function handleClick(e: MouseEvent) {
   const target = e.target as HTMLElement
   if (target.classList.contains('preview-btn')) {
@@ -95,6 +116,7 @@ function handleClick(e: MouseEvent) {
         ? 'bg-primary-600 text-white rounded-tr-md'
         : 'bg-dark-800 text-dark-200 rounded-tl-md border border-dark-700/50'"
     >
+      <!-- 助手消息：历史思考步骤（与流式区 ThinkingIndicator 互补） -->
       <div
         v-if="message.thinking && message.thinking.length > 0 && !isUser"
         class="mb-3 pb-3 border-b border-dark-700/50"
@@ -122,6 +144,7 @@ function handleClick(e: MouseEvent) {
         </div>
       </div>
 
+      <!-- 助手消息：工具调用摘要 -->
       <div
         v-if="message.toolCalls && message.toolCalls.length > 0 && !isUser"
         class="mb-3 pb-3 border-b border-dark-700/50"
@@ -153,6 +176,7 @@ function handleClick(e: MouseEvent) {
         </div>
       </div>
 
+      <!-- 正文：HTML 由 computed 生成；见 script 顶部的安全说明 -->
       <div v-html="renderedContent"></div>
     </div>
   </div>

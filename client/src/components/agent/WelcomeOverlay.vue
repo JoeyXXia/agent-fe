@@ -1,4 +1,9 @@
 <script setup lang="ts">
+/**
+ * Agent 工作台欢迎层（无会话时全屏展示）
+ * - 功能卡片区的 icon 为静态 SVG 字符串，通过 v-html 渲染；来源为前端常量，非用户输入，风险可控
+ * - 已注册工具列表来自 agentCore.getRegisteredTools()，用于展示能力概览
+ */
 import { agentCore } from '@/services/agent'
 
 const tools = agentCore.getRegisteredTools()
@@ -30,6 +35,7 @@ const features = [
 <template>
   <div class="h-full flex flex-col items-center justify-center p-8">
     <div class="max-w-2xl w-full text-center">
+      <!-- 品牌与简介 -->
       <div class="h-20 w-20 rounded-2xl bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold mx-auto mb-6 shadow-2xl shadow-primary-500/30">
         A
       </div>
@@ -42,6 +48,7 @@ const features = [
         帮助你快速构建前端组件
       </p>
 
+      <!-- 功能卡片网格：icon 使用 v-html（静态 SVG，见 script 说明） -->
       <div class="grid grid-cols-2 gap-4 mb-10">
         <div
           v-for="feature in features"
@@ -55,6 +62,7 @@ const features = [
         </div>
       </div>
 
+      <!-- 已注册工具名称列表 -->
       <div>
         <h4 class="text-xs font-medium text-dark-500 uppercase tracking-wider mb-3">已注册工具</h4>
         <div class="flex items-center justify-center gap-3 flex-wrap">

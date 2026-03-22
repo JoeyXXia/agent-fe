@@ -1,4 +1,10 @@
 <script setup lang="ts">
+/**
+ * 右侧代码预览面板
+ * - 「代码」页：highlight.js（core + 按需语言）高亮后通过 v-html 输出
+ * - 「预览」页：用 iframe + srcdoc 注入完整 HTML；sandbox 限制顶层导航与弹窗，仅允许脚本与同源（见 template 注释）
+ * - defineEmits：向父组件通知关闭
+ */
 import { ref, computed } from 'vue'
 import hljs from 'highlight.js/lib/core'
 import xml from 'highlight.js/lib/languages/xml'
@@ -25,6 +31,9 @@ const emit = defineEmits<{
 const activeTab = ref<'code' | 'preview'>('code')
 const copied = ref(false)
 
+/**
+ * 整段代码高亮：vue/tsx 等映射到 xml 以用 SFC/HTML 高亮规则；失败则退回转义纯文本
+ */
 const highlightedCode = computed(() => {
   try {
     const lang = props.language === 'vue' || props.language === 'tsx' ? 'xml' : props.language
@@ -34,6 +43,9 @@ const highlightedCode = computed(() => {
   }
 })
 
+/**
+ * 从 SFC 中提取 <template> 内部 HTML，供 iframe 内嵌预览；无 template 时展示占位文案
+ */
 const previewHtml = computed(() => {
   const templateMatch = props.code.match(/<template>([\s\S]*?)<\/template>/)
   if (templateMatch) {
@@ -52,7 +64,7 @@ async function copyCode() {
     copied.value = true
     setTimeout(() => { copied.value = false }, 2000)
   } catch {
-    // Fallback
+    // 剪贴板不可用等情况静默失败
   }
 }
 
@@ -61,6 +73,7 @@ const lineCount = computed(() => props.code.split('\n').length)
 
 <template>
   <div class="h-full flex flex-col glass-panel">
+    <!-- 顶栏：Tab、语言与行数、复制、关闭 -->
     <div class="flex items-center justify-between px-4 py-3 border-b border-dark-700/50">
       <div class="flex items-center gap-3">
         <div class="flex gap-1">
@@ -104,10 +117,17 @@ const lineCount = computed(() => props.code.split('\n').length)
     </div>
 
     <div class="flex-1 overflow-hidden">
+      <!-- 代码视图：高亮结果为可信 HTML 片段（来自 hljs），由 v-html 绑定 -->
       <div v-if="activeTab === 'code'" class="h-full overflow-auto p-4">
         <pre class="text-sm leading-relaxed font-mono"><code class="hljs" v-html="highlightedCode"></code></pre>
       </div>
 
+      <!--
+        预览视图：iframe sandbox
+        - allow-scripts：Tailwind CDN 等内联脚本需执行
+        - allow-same-origin：部分浏览器下脚本与空白文档模型行为；仍应警惕与父页面同域时的风险，此处内容为生成的演示 HTML
+        - 未开放 allow-top-navigation 等，降低钓鱼与顶层跳转风险
+      -->
       <div v-else class="h-full">
         <iframe
           :srcdoc="`<!DOCTYPE html>

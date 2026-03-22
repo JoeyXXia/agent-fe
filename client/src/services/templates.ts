@@ -1,10 +1,33 @@
+/**
+ * 组件模板注册表
+ *
+ * 职责：存储预定义的 Vue 组件模板，供 generateComponent 工具按关键词匹配使用
+ *
+ * 设计模式：注册表模式（Registry）—— 将模板集中管理，按关键词匹配检索
+ *          策略模式（Strategy）—— 不同模板实现相同的 generate 接口，由运行时决定使用哪个
+ *
+ * 扩展方式：在 vueTemplates 数组中新增 ComponentTemplate 对象即可
+ */
+
+/** 组件模板接口：关键词 + 框架标识 + 代码生成函数 */
 interface ComponentTemplate {
-  keywords: string[]
-  framework: string
-  generate: (name: string, description: string) => string
+  keywords: string[]  // 匹配关键词（中英文），用于 findBestMatch 评分
+  framework: string   // 框架标识（vue / react），用于过滤
+  generate: (name: string, description: string) => string  // 生成完整 SFC 代码
 }
 
+/**
+ * Vue 内置模板库
+ *
+ * 每个模板包含：
+ * - keywords：触发匹配的关键词列表（同时支持中英文）
+ * - generate：接受组件名，返回完整的 Vue SFC 字符串
+ *   （使用 ES6 模板字面量 `` ` `` 生成多行代码）
+ */
 const vueTemplates: ComponentTemplate[] = [
+  // ━━━ 模板 1：登录/注册表单 ━━━
+  // 触发词：登录、login、表单、form、注册、register
+  // 包含：reactive 表单状态、校验规则、loading 状态、错误提示
   {
     keywords: ['登录', 'login', '表单', 'form', '注册', 'register'],
     framework: 'vue',
@@ -82,6 +105,9 @@ async function handleSubmit() {
   </div>
 </template>`,
   },
+  // ━━━ 模板 2：卡片列表 ━━━
+  // 触发词：卡片、card、展示、信息
+  // 包含：响应式网格布局、hover 动画、标签、图片
   {
     keywords: ['卡片', 'card', '展示', '信息'],
     framework: 'vue',
@@ -127,6 +153,9 @@ const hoveredId = ref<number | null>(null)
   </div>
 </template>`,
   },
+  // ━━━ 模板 3：数据表格 ━━━
+  // 触发词：表格、table、数据、列表、list
+  // 包含：搜索过滤（computed）、状态徽章、响应式表格
   {
     keywords: ['表格', 'table', '数据', '列表', 'list'],
     framework: 'vue',
@@ -201,6 +230,9 @@ const statusStyle: Record<string, string> = {
   </div>
 </template>`,
   },
+  // ━━━ 模板 4：导航栏 ━━━
+  // 触发词：导航、nav、header、菜单、menu
+  // 包含：响应式导航（桌面/移动端）、backdrop-blur、hamburger 切换
   {
     keywords: ['导航', 'nav', 'header', '菜单', 'menu'],
     framework: 'vue',
@@ -247,6 +279,9 @@ const navItems = ['首页', '产品', '关于', '联系我们']
   </nav>
 </template>`,
   },
+  // ━━━ 模板 5：待办事项 ━━━
+  // 触发词：todo、待办、任务、task
+  // 包含：CRUD 操作、computed 过滤、checkbox 双向绑定
   {
     keywords: ['todo', '待办', '任务', 'task'],
     framework: 'vue',
@@ -321,6 +356,10 @@ function removeTodo(id: number) {
   },
 ]
 
+/**
+ * 兜底模板 —— 当没有任何关键词匹配时使用
+ * 生成一个最简单的可关闭卡片组件
+ */
 const defaultVueTemplate: ComponentTemplate = {
   keywords: [],
   framework: 'vue',
@@ -349,6 +388,14 @@ const isVisible = ref(true)
 </template>`,
 }
 
+/**
+ * 组件模板注册表 —— 管理所有模板，提供关键词匹配查询
+ *
+ * findBestMatch 算法：
+ * 1. 过滤出目标框架的模板
+ * 2. 对每个模板，统计描述中命中的关键词数（评分）
+ * 3. 取评分最高的模板；如果全部为 0，返回 defaultVueTemplate
+ */
 class ComponentTemplateRegistry {
   private templates: ComponentTemplate[] = [...vueTemplates]
 
@@ -358,7 +405,7 @@ class ComponentTemplateRegistry {
     let bestScore = 0
 
     for (const template of this.templates) {
-      if (template.framework !== framework) continue
+      if (template.framework !== framework) continue // 框架不匹配则跳过
       const score = template.keywords.filter((kw) => lowerDesc.includes(kw)).length
       if (score > bestScore) {
         bestScore = score
@@ -366,8 +413,9 @@ class ComponentTemplateRegistry {
       }
     }
 
-    return bestMatch || defaultVueTemplate
+    return bestMatch || defaultVueTemplate // 无匹配时使用兜底模板
   }
 }
 
+/** 导出单例供 generateComponent 工具使用 */
 export const componentTemplates = new ComponentTemplateRegistry()

@@ -3,7 +3,7 @@
     <Navbar />
 
     <main class="max-w-6xl mx-auto px-4 py-6">
-      <!-- Stats -->
+      <!-- 统计卡片：数据来自 notesStore.stats，由 computed 聚合成 statCards -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <div
           v-for="stat in statCards"
@@ -15,7 +15,7 @@
         </div>
       </div>
 
-      <!-- Toolbar -->
+      <!-- 工具栏：搜索（防抖）+ 收藏筛选 + 新建 -->
       <div class="flex flex-col sm:flex-row gap-3 mb-6">
         <div class="relative flex-1">
           <svg
@@ -54,12 +54,12 @@
         </div>
       </div>
 
-      <!-- Loading -->
+      <!-- 列表加载中 -->
       <div v-if="notesStore.loading" class="text-center py-20 text-gray-400 text-sm">
         加载中...
       </div>
 
-      <!-- Empty State -->
+      <!-- 空状态：无数据或搜索无结果 -->
       <div v-else-if="notesStore.notes.length === 0" class="text-center py-20">
         <div class="text-5xl mb-4 opacity-30">&#128221;</div>
         <p class="text-gray-400 mb-4">
@@ -74,7 +74,7 @@
         </button>
       </div>
 
-      <!-- Note Grid -->
+      <!-- 笔记卡片网格 -->
       <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div
           v-for="note in notesStore.notes"
@@ -86,6 +86,7 @@
             <h3 class="font-semibold text-gray-800 group-hover:text-indigo-600 transition line-clamp-1">
               {{ note.title }}
             </h3>
+            <!-- @click.stop 阻止冒泡到卡片，避免误触打开编辑 -->
             <button
               @click.stop="notesStore.toggleFavorite(note.id)"
               class="text-lg ml-2 flex-shrink-0"
@@ -124,6 +125,7 @@
       </div>
     </main>
 
+    <!-- 弹窗：编辑/新建由 editingNote 是否为 null 区分 -->
     <NoteModal
       v-if="modalOpen"
       :note="editingNote"
@@ -135,6 +137,11 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 笔记管理页（Dashboard）
+ * - 展示统计、搜索（输入防抖）、收藏筛选、笔记列表与弹窗编辑
+ * - 统计与列表数据来自 Pinia notesStore；statCards 用 computed 派生，依赖变化时自动缓存更新
+ */
 import { ref, computed, onMounted } from 'vue'
 import { useNotesStore, type Note } from '../stores/notes'
 import Navbar from '../components/Navbar.vue'
@@ -147,6 +154,9 @@ const filterFavorite = ref(false)
 const modalOpen = ref(false)
 const editingNote = ref<Note | null>(null)
 
+/**
+ * 统计卡片配置：computed 仅在 notesStore.stats 等依赖变化时重算，避免模板内重复计算
+ */
 const statCards = computed(() => [
   { label: '全部笔记', value: notesStore.stats.total, color: 'text-indigo-600' },
   { label: '收藏', value: notesStore.stats.favorites, color: 'text-amber-500' },
@@ -158,6 +168,7 @@ const statCards = computed(() => [
   },
 ])
 
+/** 搜索防抖定时器句柄：每次 input 先 clear 再 setTimeout，实现 300ms 内只触发一次 loadNotes */
 let searchTimer: ReturnType<typeof setTimeout>
 
 function handleSearch() {
@@ -172,6 +183,7 @@ function toggleFilter() {
   loadNotes()
 }
 
+/** 组装查询参数并调用 store 拉取列表 */
 function loadNotes() {
   const params: Record<string, string> = {}
   if (searchQuery.value) params.q = searchQuery.value
@@ -201,6 +213,7 @@ function onDeleted() {
   notesStore.fetchStats()
 }
 
+/** 相对时间展示：与 UTC 字符串拼接 'Z' 解析，避免本地时区偏差 */
 function formatDate(dateStr: string) {
   if (!dateStr) return ''
   const d = new Date(dateStr + 'Z')

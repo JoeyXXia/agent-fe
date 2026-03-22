@@ -1,4 +1,9 @@
 <script setup lang="ts">
+/**
+ * 流式「进行中」气泡：展示当前思考步骤与工具调用状态，底部为加载动画点
+ * - 仅通过 defineProps 接收 steps / toolCalls，无本地状态；父组件 ChatPanel 在 isProcessing 时挂载
+ * - 与 MessageBubble 内嵌的「已完成」思考块结构对应，便于用户区分历史与实时
+ */
 import type { ThinkingStep, ToolCallRecord } from '@/types'
 
 defineProps<{
@@ -15,6 +20,7 @@ defineProps<{
       </div>
     </div>
 
+    <!-- 实时思考与工具：与 chatStore.currentThinking / currentToolCalls 绑定 -->
     <div class="bg-dark-800 rounded-2xl rounded-tl-md border border-dark-700/50 px-4 py-3 max-w-[80%]">
       <div v-if="steps.length > 0" class="space-y-2 mb-3">
         <div
@@ -52,6 +58,7 @@ defineProps<{
         </div>
       </div>
 
+      <!-- 等待下一轮输出时的占位动画 -->
       <div class="flex items-center gap-1.5">
         <div class="thinking-dot h-2 w-2 rounded-full bg-primary-400"></div>
         <div class="thinking-dot h-2 w-2 rounded-full bg-primary-400"></div>

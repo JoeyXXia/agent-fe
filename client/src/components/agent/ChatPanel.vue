@@ -1,4 +1,10 @@
 <script setup lang="ts">
+/**
+ * 聊天主面板
+ * - 展示当前会话标题、消息列表（或空态 + 快捷建议）、底部输入区
+ * - 子组件 MessageBubble 通过 emit('previewCode') 上抛，本组件用 @preview-code 监听并转调 chatStore.setPreview
+ * - 使用 watch 监听消息数量、流式内容、思考步骤长度，配合 nextTick 滚动到底部
+ */
 import { ref, nextTick, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import MessageBubble from './MessageBubble.vue'
@@ -6,8 +12,10 @@ import ThinkingIndicator from './ThinkingIndicator.vue'
 
 const chatStore = useChatStore()
 const inputText = ref('')
+/** 消息滚动容器 ref，用于 scrollTop = scrollHeight */
 const messagesContainer = ref<HTMLDivElement>()
 
+/** 空会话时展示的快捷文案，点击后填入并发送 */
 const suggestions = [
   '帮我生成一个登录表单组件',
   '创建一个数据表格组件，带搜索功能',
@@ -28,10 +36,12 @@ function handleSuggestion(text: string) {
   handleSend()
 }
 
+/** 子组件「预览」按钮通过 emit 上抛，此处写入 store 以打开右侧 CodePreview */
 function handlePreviewCode(code: string, language: string) {
   chatStore.setPreview(code, language)
 }
 
+/** Enter 发送、Shift+Enter 换行（默认 textarea 行为） */
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
@@ -39,6 +49,7 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+/** DOM 更新后再滚动，确保新消息已渲染进高度计算 */
 function scrollToBottom() {
   nextTick(() => {
     if (messagesContainer.value) {
@@ -47,6 +58,12 @@ function scrollToBottom() {
   })
 }
 
+/**
+ * 监听三类变化以跟随滚动到底部：
+ * - messages.length：新消息
+ * - streamingContent：流式输出过程中内容变长
+ * - currentThinking.length：思考步骤追加
+ */
 watch(() => chatStore.messages.length, scrollToBottom)
 watch(() => chatStore.streamingContent, scrollToBottom)
 watch(() => chatStore.currentThinking.length, scrollToBottom)
@@ -54,6 +71,7 @@ watch(() => chatStore.currentThinking.length, scrollToBottom)
 
 <template>
   <div class="flex-1 flex flex-col h-full">
+    <!-- 顶栏：会话标题与消息条数 -->
     <div class="px-6 py-4 border-b border-dark-700/50 glass-panel flex items-center justify-between">
       <div>
         <h2 class="text-base font-semibold text-white">
@@ -70,6 +88,7 @@ watch(() => chatStore.currentThinking.length, scrollToBottom)
       </div>
     </div>
 
+    <!-- 消息区：空态（建议按钮）或有消息 + 处理中指示器 -->
     <div ref="messagesContainer" class="flex-1 overflow-y-auto px-6 py-4 space-y-6">
       <div v-if="chatStore.messages.length === 0" class="h-full flex flex-col items-center justify-center">
         <div class="text-center max-w-md">
@@ -82,6 +101,7 @@ watch(() => chatStore.currentThinking.length, scrollToBottom)
             描述你的需求，我会规划执行步骤并调用工具完成任务。
           </p>
 
+          <!-- 快捷建议：点击即发送 -->
           <div class="grid grid-cols-1 gap-2">
             <button
               v-for="suggestion in suggestions"
@@ -103,6 +123,7 @@ watch(() => chatStore.currentThinking.length, scrollToBottom)
           @preview-code="handlePreviewCode"
         />
 
+        <!-- Agent 处理中：展示实时思考与工具调用 -->
         <ThinkingIndicator
           v-if="chatStore.isProcessing"
           :steps="chatStore.currentThinking"
@@ -111,6 +132,7 @@ watch(() => chatStore.currentThinking.length, scrollToBottom)
       </template>
     </div>
 
+    <!-- 底部输入：处理中禁用，避免并发发送 -->
     <div class="px-6 py-4 border-t border-dark-700/50">
       <div class="flex items-end gap-3">
         <div class="flex-1 relative">
