@@ -297,30 +297,6 @@ AI_BASE_URL=https://api.openai.com/v1
 AI_MODEL=gpt-3.5-turbo
 ```
 
-## 项目亮点
-
-1. **ReAct Agent 架构**：完整实现 Reasoning + Acting 循环，Agent 具备意图识别、多步规划、工具调用、结果反思能力，对标业界 AI Agent 设计范式
-2. **可扩展工具系统**：基于注册表模式的 Tool Registry，新增工具只需实现 `AgentTool` 接口并注册，零改动即插即用
-3. **全栈工程闭环**：前端 Vue 3 + 后端 Express + SQLite，JWT 认证链路完整，RESTful API 规范，覆盖从注册登录到数据持久化的全流程
-4. **AI 能力分层**：LLM 调用抽象为独立 Service 层，支持真实 API / Mock 模式无缝切换，便于本地开发与演示
-5. **Agent 推理可视化**：完整展示 Agent 的思考过程、任务规划、工具调用链，提升可解释性和用户信任度
-6. **安全实践**：JWT 认证 + bcrypt 密码哈希 + Axios 拦截器自动登出 + iframe sandbox 代码隔离 + DOMPurify XSS 防护
-
-## 扩展路线（Roadmap）
-
-> 以下特性已在架构中预留扩展点，可在 GitHub 上持续迭代：
-
-- [ ] **接入真实 LLM**：对接 OpenAI / Claude / DeepSeek / 本地 Ollama 模型
-- [ ] **Agent 记忆系统**：短期对话记忆 + 长期用户偏好存储
-- [ ] **多文件项目生成**：从单组件扩展到完整项目脚手架生成
-- [ ] **Monaco Editor 集成**：替换简易编辑器为 VS Code 同款编辑体验
-- [ ] **多框架支持**：扩展 React / Svelte / Solid 组件生成模板
-- [ ] **MCP 协议对接**：支持 Model Context Protocol，接入外部工具和数据源
-- [ ] **RAG 知识库**：结合向量数据库为 Agent 注入项目上下文
-- [ ] **协作编辑**：WebSocket 实时协作 + 操作冲突解决
-- [ ] **CI/CD 集成**：GitHub Actions 自动化测试与部署
-- [ ] **插件市场**：社区贡献工具插件，丰富 Agent 能力生态
-
 ## License
 
 MIT
