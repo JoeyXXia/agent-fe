@@ -1,0 +1,73 @@
+<script setup lang="ts">
+import { agentCore } from '@/services/agent'
+
+const tools = agentCore.getRegisteredTools()
+
+const features = [
+  {
+    icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>`,
+    title: '组件生成',
+    desc: '自然语言描述需求，自动生成 Vue/React 组件',
+  },
+  {
+    icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>`,
+    title: '任务规划',
+    desc: '自动分解复杂任务，制定执行计划',
+  },
+  {
+    icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>`,
+    title: '代码预览',
+    desc: '实时预览生成的组件，即时查看效果',
+  },
+  {
+    icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>`,
+    title: '工具调用',
+    desc: 'Agent 自主选择并调用合适的工具完成任务',
+  },
+]
+</script>
+
+<template>
+  <div class="h-full flex flex-col items-center justify-center p-8">
+    <div class="max-w-2xl w-full text-center">
+      <div class="h-20 w-20 rounded-2xl bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold mx-auto mb-6 shadow-2xl shadow-primary-500/30">
+        A
+      </div>
+
+      <h1 class="text-3xl font-bold text-white mb-3">
+        AI DevStudio <span class="text-gradient">代码 Agent</span>
+      </h1>
+      <p class="text-dark-400 text-base mb-10 max-w-lg mx-auto">
+        基于 ReAct 架构的 AI Agent，具备任务规划、工具调用和代码生成能力，<br />
+        帮助你快速构建前端组件
+      </p>
+
+      <div class="grid grid-cols-2 gap-4 mb-10">
+        <div
+          v-for="feature in features"
+          :key="feature.title"
+          class="p-5 rounded-xl bg-dark-800/50 border border-dark-700/50 text-left hover:bg-dark-800 hover:border-dark-600 transition-all duration-200"
+        >
+          <div class="h-10 w-10 rounded-lg bg-primary-500/10 text-primary-400 flex items-center justify-center mb-3" v-html="feature.icon">
+          </div>
+          <h3 class="text-sm font-semibold text-white mb-1">{{ feature.title }}</h3>
+          <p class="text-xs text-dark-400">{{ feature.desc }}</p>
+        </div>
+      </div>
+
+      <div>
+        <h4 class="text-xs font-medium text-dark-500 uppercase tracking-wider mb-3">已注册工具</h4>
+        <div class="flex items-center justify-center gap-3 flex-wrap">
+          <span
+            v-for="tool in tools"
+            :key="tool.name"
+            class="px-3 py-1.5 rounded-lg bg-dark-800 border border-dark-700/50 text-xs text-dark-300 flex items-center gap-1.5"
+          >
+            <span>{{ tool.icon }}</span>
+            <span class="font-mono">{{ tool.name }}</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
