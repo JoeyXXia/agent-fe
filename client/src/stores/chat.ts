@@ -15,7 +15,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Message, Conversation, ThinkingStep, ToolCallRecord } from '@/types'
-import { agentCore } from '@/services/agent'
+import { agentCore, isAbortLike } from '@/services/agent'
 
 export const useChatStore = defineStore('chat', () => {
   // 所有会话保存在内存；刷新页面会丢失（若需持久化可另行对接 localStorage 或后端）
@@ -33,6 +33,8 @@ export const useChatStore = defineStore('chat', () => {
   const showPreview = ref(false)
   const previewCode = ref('')
   const previewLanguage = ref('vue')
+  /** 终止当前一轮 Agent 请求（远程 / 本地 ReAct / 流式输出） */
+  const agentAbortController = ref<AbortController | null>(null)
 
   /**
    * 当前激活的会话对象
@@ -117,6 +119,9 @@ export const useChatStore = defineStore('chat', () => {
     currentThinking.value = []
     currentToolCalls.value = []
 
+    const ac = new AbortController()
+    agentAbortController.value = ac
+
     try {
       const response = await agentCore.run(
         content,
@@ -136,6 +141,13 @@ export const useChatStore = defineStore('chat', () => {
         // 流式内容回调：当前实现将 chunk 直接赋给 streamingContent（由 agent 层约定语义）
         (chunk) => {
           streamingContent.value = chunk
+        },
+        {
+          conversationMessages: activeConversation.value!.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          abortSignal: ac.signal,
         }
       )
 
@@ -155,19 +167,34 @@ export const useChatStore = defineStore('chat', () => {
         activeConversation.value!.title = content.slice(0, 20) + (content.length > 20 ? '...' : '')
       }
     } catch (error) {
-      const errorMsg: Message = {
-        id: `msg_err_${Date.now()}`,
-        role: 'assistant',
-        content: '抱歉，处理你的请求时出现了问题。请稍后重试。',
-        timestamp: Date.now(),
+      if (isAbortLike(error)) {
+        const stopMsg: Message = {
+          id: `msg_stop_${Date.now()}`,
+          role: 'assistant',
+          content: '已停止生成。',
+          timestamp: Date.now(),
+        }
+        activeConversation.value!.messages.push(stopMsg)
+      } else {
+        const errorMsg: Message = {
+          id: `msg_err_${Date.now()}`,
+          role: 'assistant',
+          content: '抱歉，处理你的请求时出现了问题。请稍后重试。',
+          timestamp: Date.now(),
+        }
+        activeConversation.value!.messages.push(errorMsg)
       }
-      activeConversation.value!.messages.push(errorMsg)
     } finally {
+      agentAbortController.value = null
       isProcessing.value = false
       streamingContent.value = ''
       currentThinking.value = []
       currentToolCalls.value = []
     }
+  }
+
+  function cancelAgentRequest() {
+    agentAbortController.value?.abort()
   }
 
   /** 手动打开预览并指定代码与高亮语言 */
@@ -198,6 +225,7 @@ export const useChatStore = defineStore('chat', () => {
     setActiveConversation,
     deleteConversation,
     sendMessage,
+    cancelAgentRequest,
     setPreview,
     closePreview,
   }

@@ -188,6 +188,167 @@ async function invokeProvider(p: LLMProvider, prompt: string): Promise<string> {
   return callAnthropicMessages(p, prompt)
 }
 
+/** Agent 多轮对话：系统提示（与笔记任务分离） */
+const AGENT_SYSTEM_PROMPT = `你是 FE-Agent，专注于 Vue 3、TypeScript、前端工程与组件设计。用 Markdown 回复，代码使用带语言标记的 fenced code block。用户用中文提问时优先用中文回答。`
+
+export type AgentChatMessage = {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+/** 单次上游 LLM 请求超时（毫秒），避免 Node fetch 无限挂起导致 /api/agent/chat 永不返回 */
+const AGENT_UPSTREAM_TIMEOUT_MS = Math.max(
+  15000,
+  Number(process.env.AI_AGENT_TIMEOUT_MS || 180000)
+)
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `${label} 上游请求超过 ${ms}ms 未返回，请检查网络、API 可用性或增大 AI_AGENT_TIMEOUT_MS`
+            )
+          ),
+        ms
+      )
+    ),
+  ])
+}
+
+async function callOpenAICompatibleMessages(
+  p: OpenAICompatProvider,
+  messages: { role: string; content: string }[],
+  max_tokens: number,
+  signal?: AbortSignal
+): Promise<string> {
+  const res = await fetch(`${p.baseURL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${p.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: p.model,
+      messages,
+      temperature: 0.6,
+      max_tokens,
+    }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`[${p.label}] LLM API ${res.status}: ${t}`)
+  }
+
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string } }[]
+  }
+  return data.choices?.[0]?.message?.content?.trim() || ''
+}
+
+async function callAnthropicAgentTurns(
+  p: AnthropicProvider,
+  conv: AgentChatMessage[],
+  system: string,
+  signal?: AbortSignal
+): Promise<string> {
+  const msgs = conv
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }))
+
+  const res = await fetch(`${p.baseURL}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': p.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: p.model,
+      max_tokens: 4096,
+      system,
+      messages: msgs,
+      temperature: 0.6,
+    }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`[${p.label}] LLM API ${res.status}: ${t}`)
+  }
+
+  const data = (await res.json()) as {
+    content?: { type: string; text?: string }[]
+  }
+  const block = data.content?.find((c) => c.type === 'text')
+  return (block?.text ?? '').trim()
+}
+
+/**
+ * Agent 工作台多轮对话：与笔记共用同一套 provider 链（OpenAI 兼容 / Claude / Ollama 备用等）
+ * @param signal 客户端断开或主动取消时中止上游 fetch（与 withTimeout 并行）
+ */
+export async function agentChatCompletion(
+  messages: AgentChatMessage[],
+  signal?: AbortSignal
+): Promise<string> {
+  const conv = messages.filter(
+    (m) => m.role === 'user' || m.role === 'assistant'
+  )
+  const withSystem: { role: string; content: string }[] = [
+    { role: 'system', content: AGENT_SYSTEM_PROMPT },
+    ...conv.map((m) => ({ role: m.role, content: m.content })),
+  ]
+
+  const chain = buildProviderChain()
+  if (chain.length === 0) {
+    throw new Error(
+      '未配置 LLM：请设置 AI_API_KEY 等环境变量，参见 server/.env.example'
+    )
+  }
+
+  let lastErr: Error | null = null
+  for (const p of chain) {
+    try {
+      if (p.kind === 'openai') {
+        return await withTimeout(
+          callOpenAICompatibleMessages(p, withSystem, 4096, signal),
+          AGENT_UPSTREAM_TIMEOUT_MS,
+          `[${p.label}]`
+        )
+      }
+      return await withTimeout(
+        callAnthropicAgentTurns(p, conv, AGENT_SYSTEM_PROMPT, signal),
+        AGENT_UPSTREAM_TIMEOUT_MS,
+        `[${p.label}]`
+      )
+    } catch (e) {
+      if (isAbortErrorLike(e)) throw e
+      lastErr = e instanceof Error ? e : new Error(String(e))
+    }
+  }
+
+  throw lastErr ?? new Error('LLM 调用失败')
+}
+
+function isAbortErrorLike(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false
+  return (e as { name?: string }).name === 'AbortError'
+}
+
 /**
  * 统一 LLM 调用：按链路由尝试；无可用密钥则 mock
  */

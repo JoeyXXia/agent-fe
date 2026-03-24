@@ -210,6 +210,7 @@ toolRegistry.register({
 | PUT | `/api/notes/:id` | 更新笔记 | JWT |
 | DELETE | `/api/notes/:id` | 删除笔记 | JWT |
 | POST | `/api/notes/:id/ai-analyze` | AI 摘要 + 标签生成 | JWT |
+| POST | `/api/agent/chat` | Agent 工作台多轮对话（服务端 LLM，与笔记共用 `AI_*` 链） | JWT |
 | GET | `/api/agent/sessions` | Agent 会话列表 | JWT |
 | POST | `/api/agent/sessions` | 创建 Agent 会话 | JWT |
 | GET | `/api/agent/sessions/:id/messages` | 会话消息历史 | JWT |
@@ -299,6 +300,8 @@ AI_MODEL=gpt-3.5-turbo
 # 可选备用：主通道失败后依次尝试 OpenAI 兼容、Claude、本地 Ollama
 # AI_OPENAI_BACKUP_*  AI_ANTHROPIC_*  AI_OLLAMA_BACKUP=1
 ```
+
+前端（可选）：`VITE_AGENT_USE_LLM=false` 时 Agent 工作台**仅**使用浏览器内本地 ReAct（不请求 `/api/agent/chat`）；默认开启，需已登录且服务端 `AI_*` 已配置。
 
 ## License
 

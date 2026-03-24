@@ -2,23 +2,62 @@
  * Agent 会话与消息路由
  *
  * 提供 Agent 对话的持久化 RESTful API：
+ *   - POST   /chat               —— 服务端多轮 LLM（密钥仅在后端，与智能笔记共用 provider 链）
  *   - GET    /sessions           —— 获取当前用户的所有会话列表
  *   - POST   /sessions           —— 创建新会话
  *   - DELETE /sessions/:id       —— 删除指定会话
  *   - GET    /sessions/:id/messages —— 获取某会话的消息列表
  *   - POST   /sessions/:id/messages —— 向某会话追加消息
- *
- * 注意：当前客户端 Agent 在浏览器端运行（agentCore），
- * 这些接口为可选的服务端持久化层，供后续扩展（如多端同步、历史回放）使用
  */
 import { Router, Response } from 'express'
 import { auth, AuthRequest } from '../middleware'
 import { run, get, all } from '../db'
+import { agentChatCompletion, type AgentChatMessage } from '../services/ai'
 
 const router = Router()
 
 /** 所有 Agent 路由都需要 JWT 认证 */
 router.use(auth)
+
+/**
+ * POST /chat —— 多轮对话，body: { messages: { role, content }[] }
+ * 与 `server/.env` 中 AI_* 配置一致；未配置密钥时返回 500
+ */
+router.post('/chat', async (req: AuthRequest, res: Response) => {
+  const raw = req.body?.messages
+  if (!Array.isArray(raw) || raw.length === 0) {
+    res.status(400).json({ error: 'messages 必填且为非空数组' })
+    return
+  }
+
+  const allowed = new Set(['user', 'assistant', 'system'])
+  const messages: AgentChatMessage[] = []
+  for (const m of raw) {
+    const role = m?.role
+    if (!allowed.has(role)) {
+      res.status(400).json({ error: 'messages[].role 须为 user / assistant / system' })
+      return
+    }
+    messages.push({
+      role,
+      content: String(m.content ?? ''),
+    })
+  }
+
+  if (messages.some((m) => !m.content.trim())) {
+    res.status(400).json({ error: '每条消息 content 不能为空' })
+    return
+  }
+
+  try {
+    // 勿用 req.on('close') 去 abort：请求体读完后也会触发 close，易误杀上游导致误报 499
+    const content = await agentChatCompletion(messages)
+    res.json({ content })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Agent LLM 调用失败'
+    if (!res.headersSent) res.status(500).json({ error: msg })
+  }
+})
 
 /**
  * GET /sessions —— 获取当前用户的全部会话

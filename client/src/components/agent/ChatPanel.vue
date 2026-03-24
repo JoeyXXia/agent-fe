@@ -78,10 +78,18 @@ watch(() => chatStore.currentThinking.length, scrollToBottom)
           {{ chatStore.activeConversation?.title || '前端智能助手' }}
         </h2>
         <p class="text-xs text-dark-400 mt-0.5">
-          ReAct 架构 · 支持组件生成 / 代码分析 / 重构建议
+          服务端 LLM（与笔记共用配置）· 失败时回退本地 ReAct
         </p>
       </div>
       <div class="flex items-center gap-2">
+        <button
+          v-if="chatStore.isProcessing"
+          type="button"
+          @click="chatStore.cancelAgentRequest()"
+          class="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/40 hover:bg-red-500/30 transition"
+        >
+          停止
+        </button>
         <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-dark-800 text-dark-300 border border-dark-700">
           {{ chatStore.messages.length }} 条消息
         </span>

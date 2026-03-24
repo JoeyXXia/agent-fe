@@ -16,8 +16,46 @@ import type {
   CodeBlock,
   StreamCallback,
 } from '@/types'
+import axios from 'axios'
+import api from '@/api'
 import { toolRegistry } from './tools'
 import { intentClassifier, planGenerator } from './planner'
+
+/** 传入服务端 LLM 时的会话消息（含当前用户消息） */
+export type AgentConversationMessage = {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+export type AgentRunOptions = {
+  conversationMessages?: AgentConversationMessage[]
+  /** 终止本次请求（远程 HTTP、本地 ReAct 延迟与流式输出） */
+  abortSignal?: AbortSignal
+}
+
+export function isAbortLike(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false
+  const x = e as { name?: string; code?: string }
+  if (x.name === 'AbortError' || x.name === 'CanceledError') return true
+  if (x.code === 'ERR_CANCELED') return true
+  if (typeof axios.isCancel === 'function' && axios.isCancel(e)) return true
+  return false
+}
+
+function extractCodeBlocksFromMarkdown(content: string): CodeBlock[] {
+  const blocks: CodeBlock[] = []
+  const re = /```(\w+)?\n([\s\S]*?)```/g
+  let m: RegExpExecArray | null
+  let i = 0
+  while ((m = re.exec(content)) !== null) {
+    blocks.push({
+      id: `code_${Date.now()}_${i++}`,
+      language: (m[1] || 'plaintext').trim(),
+      code: m[2].trim(),
+    })
+  }
+  return blocks
+}
 
 /** 全局自增 ID 计数器，配合时间戳确保唯一性 */
 let idCounter = 0
@@ -58,12 +96,71 @@ export class AgentCore {
     userInput: string,
     onThinking?: (step: ThinkingStep) => void,
     onToolCall?: (record: ToolCallRecord) => void,
-    onStream?: StreamCallback
+    onStream?: StreamCallback,
+    options?: AgentRunOptions
   ): Promise<Message> {
     /** 三个收集器：分别收集推理步骤、工具调用记录、生成的代码块 */
     const thinkingSteps: ThinkingStep[] = []
     const toolCalls: ToolCallRecord[] = []
     const codeBlocks: CodeBlock[] = []
+
+    const useRemoteLLM =
+      import.meta.env.VITE_AGENT_USE_LLM !== 'false' &&
+      options?.conversationMessages &&
+      options.conversationMessages.length > 0
+
+    if (useRemoteLLM) {
+      const waitStep: ThinkingStep = {
+        id: uid('think'),
+        type: 'planning',
+        content:
+          '正在请求服务端模型（推理可能需数十秒；本地 Ollama 冷启动会更久），请稍候…',
+        timestamp: Date.now(),
+      }
+      onThinking?.(waitStep)
+
+      try {
+        const { data } = await api.post<{ content: string }>(
+          '/agent/chat',
+          { messages: options!.conversationMessages },
+          {
+            timeout: 200000,
+            signal: options?.abortSignal,
+          }
+        )
+        const content = (data?.content ?? '').trim()
+        if (!content) throw new Error('empty response')
+
+        const planningStep: ThinkingStep = {
+          id: uid('think'),
+          type: 'planning',
+          content: '已使用服务端大模型生成回复',
+          timestamp: Date.now(),
+        }
+        thinkingSteps.push(planningStep)
+        onThinking?.(planningStep)
+
+        const blocks = extractCodeBlocksFromMarkdown(content)
+        if (onStream)
+          await this.streamText(content, onStream, options?.abortSignal)
+
+        const message: Message = {
+          id: uid('msg'),
+          role: 'assistant',
+          content,
+          timestamp: Date.now(),
+          thinking: thinkingSteps,
+          toolCalls: [],
+          codeBlocks: blocks.length ? blocks : undefined,
+        }
+        return message
+      } catch (e) {
+        if (isAbortLike(e)) throw e
+        // 未登录、未配置 LLM 或超时：回退到本地 ReAct
+      }
+    }
+
+    const sig = options?.abortSignal
 
     // ━━━━━━━━━━ Phase 1: 意图识别（Intent Classification）━━━━━━━━━━
     const planningStep: ThinkingStep = {
@@ -75,7 +172,7 @@ export class AgentCore {
     thinkingSteps.push(planningStep)
     onThinking?.(planningStep) // 可选链调用：回调存在才执行
 
-    await sleep(400) // 延迟 400ms，让用户看到「分析中」的 UI 状态
+    await sleep(400, sig) // 延迟 400ms，让用户看到「分析中」的 UI 状态
 
     /** 调用意图分类器：关键词匹配 → 返回意图类型 + 置信度 + 提取的参数 */
     const intent = intentClassifier(userInput)
@@ -90,7 +187,7 @@ export class AgentCore {
     onThinking?.(reasoningStep)
 
     // ━━━━━━━━━━ Phase 2: 计划生成（Plan Generation）━━━━━━━━━━
-    await sleep(300)
+    await sleep(300, sig)
     /** 根据意图类型查找对应的计划模板，生成有序的执行步骤 */
     const plan = planGenerator(intent, userInput)
 
@@ -122,7 +219,7 @@ export class AgentCore {
         toolCalls.push(toolCallRecord)
         onToolCall?.(toolCallRecord) // 通知 UI：工具开始执行
 
-        await sleep(600) // 模拟工具执行延迟
+        await sleep(600, sig) // 模拟工具执行延迟
 
         const startTime = Date.now()
         try {
@@ -164,14 +261,14 @@ export class AgentCore {
     thinkingSteps.push(reflectionStep)
     onThinking?.(reflectionStep)
 
-    await sleep(300)
+    await sleep(300, sig)
 
     /** 将计划结果、工具输出、代码块组装为最终的回复文本 */
     resultContent = this.assembleResponse(plan, toolCalls, codeBlocks, intent)
 
     // ━━━━━━━━━━ Phase 5: 流式输出（Stream Output）━━━━━━━━━━
     if (onStream) {
-      await this.streamText(resultContent, onStream)
+      await this.streamText(resultContent, onStream, sig)
     }
 
     /** 构建最终 Message，附带完整的推理痕迹（thinking + toolCalls + codeBlocks） */
@@ -269,26 +366,48 @@ export class AgentCore {
    * 逐字符输出，根据字符类型动态调节延迟：
    *   换行 → 30ms | 标点 → 20ms | 普通字符 → 8~20ms 随机
    */
-  private async streamText(text: string, callback: StreamCallback) {
+  private async streamText(
+    text: string,
+    callback: StreamCallback,
+    signal?: AbortSignal
+  ) {
     const chars = text.split('')
     let buffer = ''
     for (const char of chars) {
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+      }
       buffer += char
       callback(buffer) // 每次传递累积文本（而非单字符），方便 UI 直接渲染
       if (char === '\n') {
-        await sleep(30)
+        await sleep(30, signal)
       } else if (char === '。' || char === '，' || char === '.') {
-        await sleep(20)
+        await sleep(20, signal)
       } else {
-        await sleep(8 + Math.random() * 12)
+        await sleep(8 + Math.random() * 12, signal)
       }
     }
   }
 }
 
-/** Promise 化的延迟函数 */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+/** 延迟；若传入 abortSignal 且已 abort，则抛出 AbortError */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(t)
+      signal?.removeEventListener('abort', onAbort)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    const t = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort)
+  })
 }
 
 /** 导出全局单例 —— 整个应用共用一个 Agent 实例 */
