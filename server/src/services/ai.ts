@@ -2,7 +2,7 @@
  * @file 大语言模型调用封装
  * @description
  * - 主通道：OpenAI 兼容 `POST .../chat/completions`（DeepSeek、Azure、Ollama 等）；
- * - 可选备用：OpenAI 官方兼容端点、Anthropic Claude Messages API；
+ * - 可选备用：OpenAI 兼容、Anthropic Claude、本地 Ollama（OpenAI 兼容 `/v1`）；
  * - 按配置顺序依次尝试，全部失败则抛出最后一次错误；无可用密钥时走 `mockResponse`。
  */
 
@@ -58,7 +58,14 @@ export async function generateTags(
     .slice(0, 5)
 }
 
-/** 组装调用链：主配置 → OpenAI 备用 → Claude 备用（仅当对应密钥存在） */
+/** 是否启用链尾的本地 Ollama 备用：`AI_OLLAMA_BACKUP=1` 或已填写 `AI_OLLAMA_BACKUP_BASE_URL` */
+function isOllamaBackupEnabled(): boolean {
+  const flag = process.env.AI_OLLAMA_BACKUP?.trim()
+  if (flag && /^1|true|yes$/i.test(flag)) return true
+  return !!process.env.AI_OLLAMA_BACKUP_BASE_URL?.trim()
+}
+
+/** 组装调用链：主配置 → OpenAI 备用 → Claude 备用 → 本地 Ollama（可选） */
 function buildProviderChain(): LLMProvider[] {
   const chain: LLMProvider[] = []
 
@@ -97,6 +104,20 @@ function buildProviderChain(): LLMProvider[] {
       ).replace(/\/+$/, ''),
       model:
         process.env.AI_ANTHROPIC_MODEL || 'claude-3-5-haiku-20241022',
+    })
+  }
+
+  if (isOllamaBackupEnabled()) {
+    chain.push({
+      kind: 'openai',
+      label: 'ollama-backup',
+      apiKey:
+        process.env.AI_OLLAMA_BACKUP_API_KEY?.trim() || 'ollama-local',
+      baseURL: (
+        process.env.AI_OLLAMA_BACKUP_BASE_URL ||
+        'http://127.0.0.1:11434/v1'
+      ).replace(/\/+$/, ''),
+      model: process.env.AI_OLLAMA_BACKUP_MODEL || 'llama3.2',
     })
   }
 
