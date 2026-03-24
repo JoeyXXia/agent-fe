@@ -1,10 +1,28 @@
 /**
- * @file 大语言模型调用封装（OpenAI 兼容 Chat Completions）
+ * @file 大语言模型调用封装
  * @description
- * - Prompt 工程：为「摘要」「标签」任务分别构造明确指令、输出格式约束与中文语境；
- * - 无 API Key 时走 `mockResponse` 本地启发式回复，保证开发/演示环境可离线运行；
- * - 标签结果优先 JSON 解析，失败则回退到按分隔符拆分，体现防御式解析与降级模式。
+ * - 主通道：OpenAI 兼容 `POST .../chat/completions`（DeepSeek、Azure、Ollama 等）；
+ * - 可选备用：OpenAI 官方兼容端点、Anthropic Claude Messages API；
+ * - 按配置顺序依次尝试，全部失败则抛出最后一次错误；无可用密钥时走 `mockResponse`。
  */
+
+type OpenAICompatProvider = {
+  kind: 'openai'
+  label: string
+  apiKey: string
+  baseURL: string
+  model: string
+}
+
+type AnthropicProvider = {
+  kind: 'anthropic'
+  label: string
+  apiKey: string
+  baseURL: string
+  model: string
+}
+
+type LLMProvider = OpenAICompatProvider | AnthropicProvider
 
 /**
  * 根据标题与正文生成短摘要；prompt 要求 2–3 句中文概括，便于用户快速浏览
@@ -40,35 +58,132 @@ export async function generateTags(
     .slice(0, 5)
 }
 
-/**
- * 统一 LLM 调用：优先请求 OpenAI 兼容接口；无密钥则直接 mock，避免抛错中断业务
- */
-async function callLLM(prompt: string): Promise<string> {
-  const apiKey = process.env.AI_API_KEY
-  const baseURL = process.env.AI_BASE_URL || 'https://api.openai.com/v1'
-  const model = process.env.AI_MODEL || 'gpt-3.5-turbo'
+/** 组装调用链：主配置 → OpenAI 备用 → Claude 备用（仅当对应密钥存在） */
+function buildProviderChain(): LLMProvider[] {
+  const chain: LLMProvider[] = []
 
-  // 无 API Key：降级为本地模拟，保持与「有网+密钥」相同的异步接口形态
-  if (!apiKey) return mockResponse(prompt)
+  if (process.env.AI_API_KEY?.trim()) {
+    chain.push({
+      kind: 'openai',
+      label: 'primary',
+      apiKey: process.env.AI_API_KEY.trim(),
+      baseURL: (process.env.AI_BASE_URL || 'https://api.openai.com/v1').replace(
+        /\/+$/,
+        ''
+      ),
+      model: process.env.AI_MODEL || 'gpt-3.5-turbo',
+    })
+  }
 
-  const res = await fetch(`${baseURL}/chat/completions`, {
+  if (process.env.AI_OPENAI_BACKUP_API_KEY?.trim()) {
+    chain.push({
+      kind: 'openai',
+      label: 'openai-backup',
+      apiKey: process.env.AI_OPENAI_BACKUP_API_KEY.trim(),
+      baseURL: (
+        process.env.AI_OPENAI_BACKUP_BASE_URL || 'https://api.openai.com/v1'
+      ).replace(/\/+$/, ''),
+      model: process.env.AI_OPENAI_BACKUP_MODEL || 'gpt-4o-mini',
+    })
+  }
+
+  if (process.env.AI_ANTHROPIC_API_KEY?.trim()) {
+    chain.push({
+      kind: 'anthropic',
+      label: 'claude-backup',
+      apiKey: process.env.AI_ANTHROPIC_API_KEY.trim(),
+      baseURL: (
+        process.env.AI_ANTHROPIC_BASE_URL || 'https://api.anthropic.com/v1'
+      ).replace(/\/+$/, ''),
+      model:
+        process.env.AI_ANTHROPIC_MODEL || 'claude-3-5-haiku-20241022',
+    })
+  }
+
+  return chain
+}
+
+async function callOpenAICompatible(
+  p: OpenAICompatProvider,
+  prompt: string
+): Promise<string> {
+  const res = await fetch(`${p.baseURL}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${p.apiKey}`,
     },
     body: JSON.stringify({
-      model,
+      model: p.model,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
       max_tokens: 300,
     }),
   })
 
-  if (!res.ok) throw new Error(`LLM API ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`[${p.label}] LLM API ${res.status}: ${t}`)
+  }
 
-  const data = (await res.json()) as any
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string } }[]
+  }
   return data.choices?.[0]?.message?.content?.trim() || ''
+}
+
+async function callAnthropicMessages(
+  p: AnthropicProvider,
+  prompt: string
+): Promise<string> {
+  const res = await fetch(`${p.baseURL}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': p.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: p.model,
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  })
+
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`[${p.label}] LLM API ${res.status}: ${t}`)
+  }
+
+  const data = (await res.json()) as {
+    content?: { type: string; text?: string }[]
+  }
+  const block = data.content?.find((c) => c.type === 'text')
+  return (block?.text ?? '').trim()
+}
+
+async function invokeProvider(p: LLMProvider, prompt: string): Promise<string> {
+  if (p.kind === 'openai') return callOpenAICompatible(p, prompt)
+  return callAnthropicMessages(p, prompt)
+}
+
+/**
+ * 统一 LLM 调用：按链路由尝试；无可用密钥则 mock
+ */
+async function callLLM(prompt: string): Promise<string> {
+  const chain = buildProviderChain()
+  if (chain.length === 0) return mockResponse(prompt)
+
+  let lastErr: Error | null = null
+  for (const p of chain) {
+    try {
+      return await invokeProvider(p, prompt)
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e))
+    }
+  }
+
+  throw lastErr ?? new Error('LLM 调用失败')
 }
 
 /**

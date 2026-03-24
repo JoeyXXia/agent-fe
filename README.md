@@ -295,6 +295,10 @@ JWT_SECRET=change-me-to-a-random-string
 AI_API_KEY=
 AI_BASE_URL=https://api.openai.com/v1
 AI_MODEL=gpt-3.5-turbo
+
+# 可选备用：主通道失败后依次尝试 OpenAI 兼容、Claude（Anthropic）
+# AI_OPENAI_BACKUP_API_KEY=  AI_OPENAI_BACKUP_BASE_URL=  AI_OPENAI_BACKUP_MODEL=
+# AI_ANTHROPIC_API_KEY=  AI_ANTHROPIC_MODEL=
 ```
 
 ## License
