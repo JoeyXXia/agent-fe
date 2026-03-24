@@ -51,7 +51,7 @@
               <h3 class="text-sm font-semibold text-purple-700">AI 智能分析</h3>
               <button
                 @click="handleAI"
-                :disabled="aiLoading || !savedId"
+                :disabled="aiLoading || saving || !canAiAnalyze"
                 class="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
               >
                 <svg v-if="aiLoading" class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
@@ -62,8 +62,11 @@
               </button>
             </div>
 
-            <p v-if="!savedId" class="text-xs text-purple-400">
-              请先保存笔记后再进行 AI 分析
+            <p v-if="!canAiAnalyze" class="text-xs text-purple-400">
+              请填写标题和内容后再进行 AI 分析
+            </p>
+            <p v-else-if="!savedId" class="text-xs text-purple-400">
+              尚未保存：点击「AI 分析」将先保存笔记再调用模型
             </p>
 
             <div v-if="aiSummary" class="mb-3">
@@ -129,7 +132,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  saved: []
+  /** 列表需刷新；keepOpen 为 true 时不关闭弹窗（例如先保存再 AI 分析完成） */
+  saved: [opts?: { keepOpen?: boolean }]
   deleted: []
 }>()
 
@@ -150,6 +154,11 @@ const aiSummary = ref(props.note?.summary ?? '')
 const aiTags = ref<string[]>(props.note?.tags ?? [])
 const aiError = ref('')
 
+/** 有标题与正文即可点 AI；新建未保存时会先保存再分析 */
+const canAiAnalyze = computed(
+  () => !!(form.value.title.trim() && form.value.content.trim())
+)
+
 const languages = [
   { value: 'plaintext', label: '纯文本' },
   { value: 'javascript', label: 'JavaScript' },
@@ -164,7 +173,8 @@ const languages = [
   { value: 'other', label: '其他' },
 ]
 
-async function handleSave() {
+async function handleSave(options?: { emitSaved?: boolean }) {
+  const emitSaved = options?.emitSaved !== false
   saving.value = true
   try {
     if (savedId.value) {
@@ -181,7 +191,7 @@ async function handleSave() {
       })
       savedId.value = created.id
     }
-    emit('saved')
+    if (emitSaved) emit('saved')
   } catch (err: any) {
     alert(err.response?.data?.error || '保存失败')
   } finally {
@@ -202,13 +212,19 @@ async function handleDelete() {
 }
 
 async function handleAI() {
-  if (!savedId.value) return
+  if (!canAiAnalyze.value) return
   aiLoading.value = true
   aiError.value = ''
   try {
+    if (!savedId.value) {
+      // 仅落库，勿 emit('saved')，否则父级会关弹窗，AI 请求被中断、界面像「不能分析」
+      await handleSave({ emitSaved: false })
+      if (!savedId.value) return
+    }
     const result = await notesStore.aiAnalyze(savedId.value)
     aiSummary.value = result.summary
     aiTags.value = result.tags
+    emit('saved', { keepOpen: true })
   } catch (err: any) {
     aiError.value = err.response?.data?.error || 'AI 分析失败'
   } finally {

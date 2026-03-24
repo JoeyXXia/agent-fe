@@ -201,10 +201,10 @@ function openEdit(note: Note) {
   modalOpen.value = true
 }
 
-function onSaved() {
-  modalOpen.value = false
+function onSaved(opts?: { keepOpen?: boolean }) {
   loadNotes()
   notesStore.fetchStats()
+  if (!opts?.keepOpen) modalOpen.value = false
 }
 
 function onDeleted() {
