@@ -5,7 +5,7 @@
  * - 右侧：代码预览（ChatPanel 内触发预览后 showPreview 为 true 时，通过 transition 展开）
  * - showWelcome 用 computed 派生：无当前会话且无任何历史会话时展示欢迎层
  */
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '@/stores/chat'
 import { useAuthStore } from '@/stores/auth'
@@ -17,6 +17,10 @@ import WelcomeOverlay from '../components/agent/WelcomeOverlay.vue'
 const chatStore = useChatStore()
 const auth = useAuthStore()
 const router = useRouter()
+
+onMounted(() => {
+  void chatStore.syncBackendSessions()
+})
 
 /** 是否显示欢迎首屏：无激活会话且列表为空 */
 const showWelcome = computed(

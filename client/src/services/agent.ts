@@ -61,6 +61,10 @@ function extractCodeBlocksFromMarkdown(content: string): CodeBlock[] {
 let idCounter = 0
 const uid = (prefix = 'id') => `${prefix}_${++idCounter}_${Date.now()}`
 
+/** 本地 fallback（无服务端 LLM）时使用的短期上下文窗口 */
+const LOCAL_SHORT_TERM_MESSAGE_LIMIT = 10
+const LOCAL_SHORT_TERM_MESSAGE_CHAR_LIMIT = 600
+
 export class AgentCore {
   /** 工具注册表：Map<工具名, 工具实例>，支持 O(1) 名称查找 */
   private tools: Map<string, AgentTool> = new Map()
@@ -76,6 +80,49 @@ export class AgentCore {
     for (const tool of toolRegistry) {
       this.tools.set(tool.name, tool)
     }
+  }
+
+  /** 为意图识别/本地工具参数构建短期上下文输入（只保留最近 N 条） */
+  private buildShortTermContextInput(
+    userInput: string,
+    conversationMessages?: AgentConversationMessage[]
+  ): string {
+    const conv = (conversationMessages || []).filter(
+      (m) => m.role === 'user' || m.role === 'assistant'
+    )
+    if (!conv.length) return userInput
+
+    // 只保留最近 N 条消息，避免上下文无限增长
+    const recent = conv.slice(-LOCAL_SHORT_TERM_MESSAGE_LIMIT)
+
+    // store 已把 userInput 作为最后一条 user 消息传进来，所以这里要避免重复拼接
+    const last = recent[recent.length - 1]
+    let history = recent
+    if (
+      last?.role === 'user' &&
+      last.content.trim() === userInput.trim()
+    ) {
+      history = recent.slice(0, -1)
+    }
+
+    const historyLines = history.map((m) => {
+      const label = m.role === 'user' ? '用户' : '助手'
+      const content = this.truncateText(m.content, LOCAL_SHORT_TERM_MESSAGE_CHAR_LIMIT)
+      return `${label}：${content}`
+    })
+
+    const latestUser = this.truncateText(userInput, LOCAL_SHORT_TERM_MESSAGE_CHAR_LIMIT)
+    if (!historyLines.length) return latestUser
+
+    return `最近对话（仅供理解上下文）：\n${historyLines.join(
+      '\n'
+    )}\n\n用户最新消息：${latestUser}`
+  }
+
+  private truncateText(text: string, maxLen: number): string {
+    const s = String(text ?? '')
+    if (s.length <= maxLen) return s
+    return s.slice(0, Math.max(0, maxLen - 1)) + '...'
   }
 
   /** 对外暴露已注册工具列表（WelcomeOverlay 组件用于展示工具徽章） */
@@ -163,6 +210,10 @@ export class AgentCore {
     const sig = options?.abortSignal
 
     // ━━━━━━━━━━ Phase 1: 意图识别（Intent Classification）━━━━━━━━━━
+    const contextAwareInput = this.buildShortTermContextInput(
+      userInput,
+      options?.conversationMessages
+    )
     const planningStep: ThinkingStep = {
       id: uid('think'),
       type: 'planning',
@@ -175,7 +226,13 @@ export class AgentCore {
     await sleep(400, sig) // 延迟 400ms，让用户看到「分析中」的 UI 状态
 
     /** 调用意图分类器：关键词匹配 → 返回意图类型 + 置信度 + 提取的参数 */
-    const intent = intentClassifier(userInput)
+    // 优先使用「当前用户输入」判定意图，降低历史上下文导致的误判风险；
+    // 只有当置信度较低或落到兜底 general 时，才用上下文重新推断。
+    const currentIntent = intentClassifier(userInput)
+    const intent =
+      currentIntent.type === 'general' || currentIntent.confidence < 0.6
+        ? intentClassifier(contextAwareInput)
+        : currentIntent
 
     const reasoningStep: ThinkingStep = {
       id: uid('think'),
@@ -212,7 +269,7 @@ export class AgentCore {
         const toolCallRecord: ToolCallRecord = {
           id: uid('tool'),
           toolName: step.toolName,
-          args: this.buildToolArgs(step, userInput, intent),
+          args: this.buildToolArgs(step, contextAwareInput, intent),
           result: null,
           status: 'running',
         }

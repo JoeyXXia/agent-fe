@@ -58,6 +58,8 @@ export interface Conversation {
   id: string
   title: string
   messages: Message[]
+  /** 后端持久化的会话 ID（agent_sessions.id），用于把前端会话与后端对齐 */
+  serverSessionId?: number
   createdAt: number
   updatedAt: number
 }

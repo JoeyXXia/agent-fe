@@ -15,6 +15,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Message, Conversation, ThinkingStep, ToolCallRecord } from '@/types'
+import api from '@/api'
 import { agentCore, isAbortLike } from '@/services/agent'
 
 export const useChatStore = defineStore('chat', () => {
@@ -35,6 +36,14 @@ export const useChatStore = defineStore('chat', () => {
   const previewLanguage = ref('vue')
   /** 终止当前一轮 Agent 请求（远程 / 本地 ReAct / 流式输出） */
   const agentAbortController = ref<AbortController | null>(null)
+  /** 短期记忆窗口：只保留最近 N 条消息给 LLM / 本地 ReAct */
+  const SHORT_TERM_MESSAGE_LIMIT = 12
+
+  /** 后端会话同步是否已完成（页面刷新后会重新拉取） */
+  const backendSessionsLoaded = ref(false)
+  const backendSessionsLoadInFlight = ref<Promise<void> | null>(null)
+  /** 单个会话消息加载中的去重，避免并发重复请求 */
+  const messagesLoadInFlight = new Map<number, Promise<void>>()
 
   /**
    * 当前激活的会话对象
@@ -67,6 +76,134 @@ export const useChatStore = defineStore('chat', () => {
     return conv
   }
 
+  function convToServerTitle(title?: string) {
+    // 后端在 title 为空时用默认 'New Chat'
+    return title || '新对话'
+  }
+
+  async function syncBackendSessions() {
+    if (backendSessionsLoaded.value) return
+    if (backendSessionsLoadInFlight.value) return backendSessionsLoadInFlight.value
+
+    backendSessionsLoadInFlight.value = (async () => {
+      try {
+        const { data } = await api.get('/agent/sessions')
+        const rows = Array.isArray(data) ? data : []
+
+        conversations.value = rows.map((r: any) => {
+          const id = Number(r.id)
+          return {
+            id: `conv_${id}`,
+            serverSessionId: Number.isFinite(id) ? id : undefined,
+            title: String(r.title || '新对话'),
+            messages: [],
+            createdAt: Date.parse(String(r.created_at || '')) || Date.now(),
+            updatedAt: Date.parse(String(r.updated_at || '')) || Date.now(),
+          } satisfies Conversation
+        })
+
+        activeConversationId.value =
+          conversations.value[0]?.id ?? null
+      } finally {
+        backendSessionsLoaded.value = true
+        backendSessionsLoadInFlight.value = null
+      }
+    })()
+
+    return backendSessionsLoadInFlight.value
+  }
+
+  async function ensureBackendSessionForConversation(
+    conv: Conversation
+  ): Promise<number | null> {
+    if (conv.serverSessionId && Number.isFinite(conv.serverSessionId)) return conv.serverSessionId
+
+    const { data } = await api.post('/agent/sessions', {
+      title: convToServerTitle(conv.title),
+    })
+
+    const serverId = Number((data as any)?.id)
+    if (Number.isFinite(serverId)) {
+      conv.serverSessionId = serverId
+      return serverId
+    }
+    return null
+  }
+
+  async function ensureMessagesLoaded(conv: Conversation) {
+    if (!conv.serverSessionId || conv.messages.length > 0) return
+
+    const serverId = conv.serverSessionId
+    if (messagesLoadInFlight.has(serverId)) {
+      await messagesLoadInFlight.get(serverId)!
+      return
+    }
+
+    const p = (async () => {
+      const { data } = await api.get(`/agent/sessions/${serverId}/messages`)
+      const rows = Array.isArray(data) ? data : []
+
+      const mapped: Message[] = rows.map((m: any) => {
+        const metadata = (m.metadata && typeof m.metadata === 'object' ? m.metadata : {}) as {
+          thinking?: ThinkingStep[]
+          toolCalls?: ToolCallRecord[]
+          codeBlocks?: Array<{
+            id: string
+            language: string
+            code: string
+            filename?: string
+          }>
+        }
+
+        return {
+          id: String(m.id),
+          role: m.role as Message['role'],
+          content: String(m.content ?? ''),
+          timestamp: Date.parse(String(m.created_at || '')) || Date.now(),
+          thinking: metadata.thinking,
+          toolCalls: metadata.toolCalls,
+          codeBlocks: metadata.codeBlocks,
+        } satisfies Message
+      })
+
+      conv.messages = mapped
+      conv.updatedAt = Date.now()
+    })()
+
+    messagesLoadInFlight.set(serverId, p)
+    try {
+      await p
+    } finally {
+      messagesLoadInFlight.delete(serverId)
+    }
+  }
+
+  async function appendMessageToBackend(
+    serverSessionId: number,
+    message: Message
+  ): Promise<{ id: number; role: Message['role']; content: string; createdAt: number }> {
+    const { data } = await api.post(`/agent/sessions/${serverSessionId}/messages`, {
+      role: message.role,
+      content: message.content,
+      metadata: {
+        thinking: message.thinking,
+        toolCalls: message.toolCalls,
+        codeBlocks: message.codeBlocks,
+      },
+    })
+
+    const msgId = Number((data as any)?.id)
+    const createdAt =
+      Date.parse(String((data as any)?.created_at || '')) || Date.now()
+
+    return {
+      id: Number.isFinite(msgId) ? msgId : 0,
+      role: (data as any)?.role as Message['role'],
+      content: String((data as any)?.content ?? message.content),
+      createdAt,
+    }
+  }
+
   /**
    * 切换当前会话，并关闭代码预览、清空预览内容，避免上一会话的预览误显示在新会话下
    */
@@ -74,12 +211,21 @@ export const useChatStore = defineStore('chat', () => {
     activeConversationId.value = id
     showPreview.value = false
     previewCode.value = ''
+    const conv = conversations.value.find((c) => c.id === id)
+    if (conv) void ensureMessagesLoaded(conv)
   }
 
   /**
    * 删除会话；若删的是当前选中项，则自动 fallback 到列表中第一个会话或 null
    */
-  function deleteConversation(id: string) {
+  async function deleteConversation(id: string) {
+    const conv = conversations.value.find((c) => c.id === id)
+    const serverId = conv?.serverSessionId
+
+    if (serverId) {
+      await api.delete(`/agent/sessions/${serverId}`)
+    }
+
     conversations.value = conversations.value.filter((c) => c.id !== id)
     if (activeConversationId.value === id) {
       activeConversationId.value = conversations.value[0]?.id || null
@@ -104,6 +250,17 @@ export const useChatStore = defineStore('chat', () => {
       createConversation(content.slice(0, 20) + (content.length > 20 ? '...' : ''))
     }
 
+    const conv = activeConversation.value!
+    // 如果当前是默认标题，第一次发送时用用户输入生成一个更可读的标题；
+    // 这样后端创建 session 时也能持久化该标题（无需额外“更新标题”接口）。
+    if (conv.serverSessionId == null && (conv.title === '新对话' || conv.title === 'New Chat')) {
+      conv.title = content.slice(0, 20) + (content.length > 20 ? '...' : '')
+    }
+    // 先确保后端 session 与消息就绪，保证 LLM 上下文“对齐到后端短期记忆”
+    const serverSessionId = await ensureBackendSessionForConversation(conv)
+    if (!serverSessionId) throw new Error('failed to create backend session')
+    await ensureMessagesLoaded(conv)
+
     const userMessage: Message = {
       id: `msg_${Date.now()}`,
       role: 'user',
@@ -111,8 +268,8 @@ export const useChatStore = defineStore('chat', () => {
       timestamp: Date.now(),
     }
 
-    activeConversation.value!.messages.push(userMessage)
-    activeConversation.value!.updatedAt = Date.now()
+    conv.messages.push(userMessage)
+    conv.updatedAt = Date.now()
 
     isProcessing.value = true
     streamingContent.value = ''
@@ -123,6 +280,14 @@ export const useChatStore = defineStore('chat', () => {
     agentAbortController.value = ac
 
     try {
+      // 先把用户消息落盘到后端
+      const persistedUser = await appendMessageToBackend(serverSessionId, userMessage)
+      userMessage.id = String(persistedUser.id)
+      userMessage.timestamp = persistedUser.createdAt
+
+      const shortTermMessages = activeConversation.value!.messages.slice(
+        -SHORT_TERM_MESSAGE_LIMIT
+      )
       const response = await agentCore.run(
         content,
         // 思考回调：每次追加新步骤，使用展开新数组以触发响应式更新（依赖替换引用）
@@ -143,7 +308,7 @@ export const useChatStore = defineStore('chat', () => {
           streamingContent.value = chunk
         },
         {
-          conversationMessages: activeConversation.value!.messages.map((m) => ({
+          conversationMessages: shortTermMessages.map((m) => ({
             role: m.role,
             content: m.content,
           })),
@@ -151,8 +316,16 @@ export const useChatStore = defineStore('chat', () => {
         }
       )
 
-      activeConversation.value!.messages.push(response)
-      activeConversation.value!.updatedAt = Date.now()
+      conv.messages.push(response)
+      conv.updatedAt = Date.now()
+
+      // 再把助手消息落盘到后端，并修正 message.id/timestamp 以和后端对齐
+      const persistedAssistant = await appendMessageToBackend(
+        serverSessionId,
+        response
+      )
+      response.id = String(persistedAssistant.id)
+      response.timestamp = persistedAssistant.createdAt
 
       // 若回复中含代码块，默认展示第一段并打开预览面板
       if (response.codeBlocks && response.codeBlocks.length > 0) {
@@ -160,11 +333,6 @@ export const useChatStore = defineStore('chat', () => {
         previewCode.value = block.code
         previewLanguage.value = block.language
         showPreview.value = true
-      }
-
-      // 标题仍为占位「新对话」或由首条消息生成的省略标题时，用本次发送内容再更新一次标题
-      if (activeConversation.value!.title === '新对话' || activeConversation.value!.title.endsWith('...')) {
-        activeConversation.value!.title = content.slice(0, 20) + (content.length > 20 ? '...' : '')
       }
     } catch (error) {
       if (isAbortLike(error)) {
@@ -174,7 +342,15 @@ export const useChatStore = defineStore('chat', () => {
           content: '已停止生成。',
           timestamp: Date.now(),
         }
-        activeConversation.value!.messages.push(stopMsg)
+        try {
+          const persistedStop = await appendMessageToBackend(serverSessionId, stopMsg)
+          stopMsg.id = String(persistedStop.id)
+          stopMsg.timestamp = persistedStop.createdAt
+        } catch {
+          // 中止/异常时不强制影响 UI：后端失败则只是刷新后少一条提示消息
+        }
+        conv.messages.push(stopMsg)
+        conv.updatedAt = Date.now()
       } else {
         const errorMsg: Message = {
           id: `msg_err_${Date.now()}`,
@@ -182,7 +358,15 @@ export const useChatStore = defineStore('chat', () => {
           content: '抱歉，处理你的请求时出现了问题。请稍后重试。',
           timestamp: Date.now(),
         }
-        activeConversation.value!.messages.push(errorMsg)
+        try {
+          const persistedErr = await appendMessageToBackend(serverSessionId, errorMsg)
+          errorMsg.id = String(persistedErr.id)
+          errorMsg.timestamp = persistedErr.createdAt
+        } catch {
+          // 同上：后端失败不阻断前端展示
+        }
+        conv.messages.push(errorMsg)
+        conv.updatedAt = Date.now()
       }
     } finally {
       agentAbortController.value = null
@@ -191,6 +375,9 @@ export const useChatStore = defineStore('chat', () => {
       currentThinking.value = []
       currentToolCalls.value = []
     }
+
+    // 保持侧边栏按最近更新排序（先前后端已更新 updated_at，这里做前端排序对齐）
+    conversations.value.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
   }
 
   function cancelAgentRequest() {
@@ -228,5 +415,6 @@ export const useChatStore = defineStore('chat', () => {
     cancelAgentRequest,
     setPreview,
     closePreview,
+    syncBackendSessions,
   }
 })
