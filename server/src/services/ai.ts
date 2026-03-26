@@ -188,8 +188,50 @@ async function invokeProvider(p: LLMProvider, prompt: string): Promise<string> {
   return callAnthropicMessages(p, prompt)
 }
 
-/** Agent 多轮对话：系统提示（与笔记任务分离） */
-const AGENT_SYSTEM_PROMPT = `你是 FE-Agent，专注于 Vue 3、TypeScript、前端工程与组件设计。用 Markdown 回复，代码使用带语言标记的 fenced code block。用户用中文提问时优先用中文回答。`
+/** Agent 多轮对话：基础系统提示（与笔记任务分离） */
+const AGENT_BASE_SYSTEM_PROMPT = `你是 FE-Agent，专注于前端工程与组件设计。用 Markdown 回复，代码使用带语言标记的 fenced code block。`
+
+export type UserPreferences = {
+  defaultFramework: 'vue' | 'react'
+  namingStyle: string
+  replyLanguage: 'zh' | 'en' | 'auto'
+  defaultExpandCodePreview: boolean
+  techStack: string[]
+}
+
+function buildAgentSystemPrompt(preferences?: Partial<UserPreferences>): string {
+  const lines: string[] = [AGENT_BASE_SYSTEM_PROMPT]
+
+  const framework = preferences?.defaultFramework
+  if (framework) {
+    const human = framework === 'react' ? 'React' : 'Vue'
+    lines.push(`当用户未明确指定框架时，默认使用：${human}。`)
+  }
+
+  const namingStyle = preferences?.namingStyle
+  if (namingStyle) {
+    lines.push(`代码命名风格：${namingStyle}。`)
+  }
+
+  const replyLanguage = preferences?.replyLanguage
+  if (replyLanguage === 'zh') {
+    lines.push('默认使用中文回复。')
+  } else if (replyLanguage === 'en') {
+    lines.push('默认使用英文回复。')
+  } else if (replyLanguage === 'auto') {
+    lines.push('尽量保持与用户输入一致的语言。')
+  }
+
+  const techStack = preferences?.techStack
+  if (Array.isArray(techStack) && techStack.length > 0) {
+    lines.push(`常用技术栈：${techStack.join('、')}。优先选择与这些技术栈一致的实现方式。`)
+  }
+
+  // 基于用户输入语言做兜底：避免偏好没填时全变成中文
+  lines.push('用户用中文提问时优先用中文回答。')
+
+  return lines.join('\n')
+}
 
 export type AgentChatMessage = {
   role: 'user' | 'assistant' | 'system'
@@ -303,13 +345,16 @@ async function callAnthropicAgentTurns(
  */
 export async function agentChatCompletion(
   messages: AgentChatMessage[],
-  signal?: AbortSignal
+  options?: { preferences?: Partial<UserPreferences>; signal?: AbortSignal }
 ): Promise<string> {
+  const signal = options?.signal
+  const systemPrompt = buildAgentSystemPrompt(options?.preferences)
+
   const conv = messages.filter(
     (m) => m.role === 'user' || m.role === 'assistant'
   )
   const withSystem: { role: string; content: string }[] = [
-    { role: 'system', content: AGENT_SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     ...conv.map((m) => ({ role: m.role, content: m.content })),
   ]
 
@@ -331,7 +376,7 @@ export async function agentChatCompletion(
         )
       }
       return await withTimeout(
-        callAnthropicAgentTurns(p, conv, AGENT_SYSTEM_PROMPT, signal),
+        callAnthropicAgentTurns(p, conv, systemPrompt, signal),
         AGENT_UPSTREAM_TIMEOUT_MS,
         `[${p.label}]`
       )

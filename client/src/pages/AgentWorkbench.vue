@@ -20,6 +20,7 @@ const router = useRouter()
 
 onMounted(() => {
   void chatStore.syncBackendSessions()
+  void chatStore.loadBackendPreferences()
 })
 
 /** 是否显示欢迎首屏：无激活会话且列表为空 */

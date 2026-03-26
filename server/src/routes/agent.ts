@@ -19,6 +19,150 @@ const router = Router()
 /** 所有 Agent 路由都需要 JWT 认证 */
 router.use(auth)
 
+type UserPreferences = {
+  defaultFramework: 'vue' | 'react'
+  namingStyle: string
+  replyLanguage: 'zh' | 'en' | 'auto'
+  defaultExpandCodePreview: boolean
+  techStack: string[]
+}
+
+const DEFAULT_PREFERENCES: UserPreferences = {
+  defaultFramework: 'vue',
+  namingStyle: 'PascalCase 组件名 + camelCase 变量名',
+  replyLanguage: 'zh',
+  defaultExpandCodePreview: true,
+  techStack: ['Vue', 'TypeScript', 'Tailwind'],
+}
+
+function coerceStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .map((x) => (typeof x === 'string' ? x : String(x)))
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 30)
+}
+
+function loadUserPreferences(userId: number): UserPreferences {
+  const row = get('SELECT * FROM user_preferences WHERE user_id = ?', [userId]) as any
+  if (!row) {
+    run('INSERT INTO user_preferences (user_id) VALUES (?)', [userId])
+    return loadUserPreferences(userId)
+  }
+
+  const defaultFramework = String(row.default_framework) === 'react' ? 'react' : 'vue'
+  const replyLanguageRaw = String(row.reply_language || '')
+  const replyLanguage: UserPreferences['replyLanguage'] =
+    replyLanguageRaw === 'en' || replyLanguageRaw === 'auto' || replyLanguageRaw === 'zh'
+      ? replyLanguageRaw
+      : 'zh'
+
+  let techStack: string[] = DEFAULT_PREFERENCES.techStack
+  try {
+    const parsed = JSON.parse(String(row.tech_stack || '[]'))
+    techStack = coerceStringArray(parsed)
+  } catch {
+    techStack = DEFAULT_PREFERENCES.techStack
+  }
+
+  return {
+    defaultFramework,
+    namingStyle: String(row.naming_style || DEFAULT_PREFERENCES.namingStyle),
+    replyLanguage,
+    defaultExpandCodePreview: Number(row.default_expand_code_preview) === 1,
+    techStack,
+  }
+}
+
+// 简单更新校验：只允许我们关心的字段
+function sanitizePreferences(input: any): UserPreferences {
+  const v = input || {}
+
+  const defaultFramework: UserPreferences['defaultFramework'] =
+    v.defaultFramework === 'react' ? 'react' : 'vue'
+
+  const replyLanguage: UserPreferences['replyLanguage'] =
+    v.replyLanguage === 'en' || v.replyLanguage === 'auto' || v.replyLanguage === 'zh'
+      ? v.replyLanguage
+      : 'zh'
+
+  const namingStyle: string =
+    typeof v.namingStyle === 'string' && v.namingStyle.trim()
+      ? v.namingStyle.trim().slice(0, 200)
+      : DEFAULT_PREFERENCES.namingStyle
+
+  const defaultExpandCodePreview: boolean = Boolean(v.defaultExpandCodePreview)
+  const techStack = coerceStringArray(v.techStack)
+
+  return {
+    defaultFramework,
+    namingStyle,
+    replyLanguage,
+    defaultExpandCodePreview,
+    techStack: techStack.length ? techStack : DEFAULT_PREFERENCES.techStack,
+  }
+}
+
+/**
+ * GET /preferences —— 当前用户的长期偏好（跨会话生效）
+ */
+router.get('/preferences', (req: AuthRequest, res: Response) => {
+  const prefs = loadUserPreferences(req.userId!)
+  res.json(prefs)
+})
+
+/**
+ * PUT /preferences —— 更新当前用户偏好
+ */
+router.put('/preferences', (req: AuthRequest, res: Response) => {
+  const prefs = sanitizePreferences(req.body)
+  const userId = req.userId!
+
+  const existing = get('SELECT user_id FROM user_preferences WHERE user_id = ?', [userId])
+  if (existing) {
+    run(
+      `
+      UPDATE user_preferences
+      SET default_framework = ?,
+          naming_style = ?,
+          reply_language = ?,
+          default_expand_code_preview = ?,
+          tech_stack = ?,
+          updated_at = datetime('now')
+      WHERE user_id = ?
+    `,
+      [
+        prefs.defaultFramework,
+        prefs.namingStyle,
+        prefs.replyLanguage,
+        prefs.defaultExpandCodePreview ? 1 : 0,
+        JSON.stringify(prefs.techStack),
+        userId,
+      ]
+    )
+  } else {
+    run(
+      `
+      INSERT INTO user_preferences
+        (user_id, default_framework, naming_style, reply_language, default_expand_code_preview, tech_stack, created_at, updated_at)
+      VALUES
+        (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    `,
+      [
+        userId,
+        prefs.defaultFramework,
+        prefs.namingStyle,
+        prefs.replyLanguage,
+        prefs.defaultExpandCodePreview ? 1 : 0,
+        JSON.stringify(prefs.techStack),
+      ]
+    )
+  }
+
+  res.json(loadUserPreferences(userId))
+})
+
 /**
  * POST /chat —— 多轮对话，body: { messages: { role, content }[] }
  * 与 `server/.env` 中 AI_* 配置一致；未配置密钥时返回 500
@@ -50,8 +194,9 @@ router.post('/chat', async (req: AuthRequest, res: Response) => {
   }
 
   try {
+    const preferences = loadUserPreferences(req.userId!)
     // 勿用 req.on('close') 去 abort：请求体读完后也会触发 close，易误杀上游导致误报 499
-    const content = await agentChatCompletion(messages)
+    const content = await agentChatCompletion(messages, { preferences })
     res.json({ content })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Agent LLM 调用失败'

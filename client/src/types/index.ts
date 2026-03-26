@@ -64,6 +64,18 @@ export interface Conversation {
   updatedAt: number
 }
 
+export type UserReplyLanguage = 'zh' | 'en' | 'auto'
+export type UserDefaultFramework = 'vue' | 'react'
+
+/** 用户长期偏好：跨会话生效（绑定到 users.id） */
+export interface UserPreferences {
+  defaultFramework: UserDefaultFramework
+  namingStyle: string
+  replyLanguage: UserReplyLanguage
+  defaultExpandCodePreview: boolean
+  techStack: string[]
+}
+
 /**
  * Agent 可调用的工具定义：`execute` 接收任意 JSON 形参（Record），返回 Promise<ToolResult>，
  * 体现前端对「工具即异步函数」的抽象。

@@ -79,6 +79,18 @@ export async function initDB() {
       FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id INTEGER PRIMARY KEY,
+      default_framework TEXT NOT NULL DEFAULT 'vue',
+      naming_style TEXT NOT NULL DEFAULT 'PascalCase 组件名 + camelCase 变量名',
+      reply_language TEXT NOT NULL DEFAULT 'zh',
+      default_expand_code_preview INTEGER NOT NULL DEFAULT 1,
+      tech_stack TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id);
     CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON agent_sessions(user_id);

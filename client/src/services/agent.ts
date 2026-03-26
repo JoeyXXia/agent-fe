@@ -15,6 +15,7 @@ import type {
   AgentTool,
   CodeBlock,
   StreamCallback,
+  UserPreferences,
 } from '@/types'
 import axios from 'axios'
 import api from '@/api'
@@ -31,6 +32,8 @@ export type AgentRunOptions = {
   conversationMessages?: AgentConversationMessage[]
   /** 终止本次请求（远程 HTTP、本地 ReAct 延迟与流式输出） */
   abortSignal?: AbortSignal
+  /** 用户长期偏好（用于本地 fallback 的默认框架等） */
+  userPreferences?: UserPreferences
 }
 
 export function isAbortLike(e: unknown): boolean {
@@ -214,6 +217,12 @@ export class AgentCore {
       userInput,
       options?.conversationMessages
     )
+
+    // 本地工具模板目前只支持 Vue 生成；若用户偏好为 React，fallback 时仍使用 Vue 兜底。
+    const localDefaultFramework: 'vue' | 'react' =
+      options?.userPreferences?.defaultFramework === 'react'
+        ? 'vue'
+        : options?.userPreferences?.defaultFramework || 'vue'
     const planningStep: ThinkingStep = {
       id: uid('think'),
       type: 'planning',
@@ -228,10 +237,10 @@ export class AgentCore {
     /** 调用意图分类器：关键词匹配 → 返回意图类型 + 置信度 + 提取的参数 */
     // 优先使用「当前用户输入」判定意图，降低历史上下文导致的误判风险；
     // 只有当置信度较低或落到兜底 general 时，才用上下文重新推断。
-    const currentIntent = intentClassifier(userInput)
+    const currentIntent = intentClassifier(userInput, { defaultFramework: localDefaultFramework })
     const intent =
       currentIntent.type === 'general' || currentIntent.confidence < 0.6
-        ? intentClassifier(contextAwareInput)
+        ? intentClassifier(contextAwareInput, { defaultFramework: localDefaultFramework })
         : currentIntent
 
     const reasoningStep: ThinkingStep = {

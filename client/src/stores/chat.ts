@@ -14,7 +14,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Message, Conversation, ThinkingStep, ToolCallRecord } from '@/types'
+import type { Message, Conversation, ThinkingStep, ToolCallRecord, UserPreferences } from '@/types'
 import api from '@/api'
 import { agentCore, isAbortLike } from '@/services/agent'
 
@@ -39,11 +39,26 @@ export const useChatStore = defineStore('chat', () => {
   /** 短期记忆窗口：只保留最近 N 条消息给 LLM / 本地 ReAct */
   const SHORT_TERM_MESSAGE_LIMIT = 12
 
+  const DEFAULT_PREFERENCES: UserPreferences = {
+    defaultFramework: 'vue',
+    namingStyle: 'PascalCase 组件名 + camelCase 变量名',
+    replyLanguage: 'zh',
+    defaultExpandCodePreview: true,
+    techStack: ['Vue', 'TypeScript', 'Tailwind'],
+  }
+
+  /** 用户长期偏好：绑定账号、跨会话生效 */
+  const preferences = ref<UserPreferences>(DEFAULT_PREFERENCES)
+
   /** 后端会话同步是否已完成（页面刷新后会重新拉取） */
   const backendSessionsLoaded = ref(false)
   const backendSessionsLoadInFlight = ref<Promise<void> | null>(null)
   /** 单个会话消息加载中的去重，避免并发重复请求 */
   const messagesLoadInFlight = new Map<number, Promise<void>>()
+
+  /** 偏好加载是否完成（页面刷新后会重新拉取） */
+  const backendPreferencesLoaded = ref(false)
+  const backendPreferencesLoadInFlight = ref<Promise<void> | null>(null)
 
   /**
    * 当前激活的会话对象
@@ -176,6 +191,38 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       messagesLoadInFlight.delete(serverId)
     }
+  }
+
+  /**
+   * 拉取后端用户偏好：用于跨会话的个性化默认行为
+   */
+  async function loadBackendPreferences() {
+    if (backendPreferencesLoaded.value) return
+    if (backendPreferencesLoadInFlight.value) return backendPreferencesLoadInFlight.value
+
+    backendPreferencesLoadInFlight.value = (async () => {
+      try {
+        const { data } = await api.get('/agent/preferences')
+        const pf = data || {}
+        preferences.value = {
+          defaultFramework: pf.defaultFramework === 'react' ? 'react' : 'vue',
+          namingStyle:
+            typeof pf.namingStyle === 'string' && pf.namingStyle.trim()
+              ? pf.namingStyle.trim().slice(0, 200)
+              : DEFAULT_PREFERENCES.namingStyle,
+          replyLanguage: pf.replyLanguage === 'en' || pf.replyLanguage === 'auto' || pf.replyLanguage === 'zh' ? pf.replyLanguage : 'zh',
+          defaultExpandCodePreview: Boolean(pf.defaultExpandCodePreview),
+          techStack: Array.isArray(pf.techStack) ? pf.techStack.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 30) : DEFAULT_PREFERENCES.techStack,
+        }
+      } catch {
+        preferences.value = DEFAULT_PREFERENCES
+      } finally {
+        backendPreferencesLoaded.value = true
+        backendPreferencesLoadInFlight.value = null
+      }
+    })()
+
+    return backendPreferencesLoadInFlight.value
   }
 
   async function appendMessageToBackend(
@@ -313,6 +360,7 @@ export const useChatStore = defineStore('chat', () => {
             content: m.content,
           })),
           abortSignal: ac.signal,
+          userPreferences: preferences.value,
         }
       )
 
@@ -332,7 +380,7 @@ export const useChatStore = defineStore('chat', () => {
         const block = response.codeBlocks[0]
         previewCode.value = block.code
         previewLanguage.value = block.language
-        showPreview.value = true
+        showPreview.value = preferences.value.defaultExpandCodePreview
       }
     } catch (error) {
       if (isAbortLike(error)) {
@@ -401,6 +449,7 @@ export const useChatStore = defineStore('chat', () => {
     activeConversationId,
     activeConversation,
     messages,
+    preferences,
     isProcessing,
     streamingContent,
     currentThinking,
@@ -416,5 +465,6 @@ export const useChatStore = defineStore('chat', () => {
     setPreview,
     closePreview,
     syncBackendSessions,
+    loadBackendPreferences,
   }
 })

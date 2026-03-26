@@ -22,20 +22,20 @@ interface Intent {
 const INTENT_PATTERNS: Array<{
   type: string
   keywords: string[]
-  extract?: (input: string) => Record<string, string>
+  extract?: (input: string, ctx: { defaultFramework: string }) => Record<string, string>
 }> = [
   {
     type: 'generate_component',
     keywords: ['生成', '创建', '写一个', '做一个', '帮我写', '组件', 'component', '页面', '表单', '列表', '卡片', '按钮', '导航', '弹窗', 'modal', 'form', 'table', 'card', 'button', 'nav'],
     /** 参数提取：从输入中识别组件名和框架偏好 */
-    extract: (input) => {
+    extract: (input, ctx) => {
       // 正则匹配显式命名，如「叫 LoginForm」「名为 MyComp」
       const nameMatch = input.match(/(?:叫|名为|命名为|名字是)\s*["""]?(\w+)["""]?/)
-      // 正则匹配框架偏好
-      const frameworkMatch = input.match(/(vue|react|svelte)/i)
+      // 正则匹配框架偏好（本地工具仅保证 Vue；React 仅用于远程/提示）
+      const frameworkMatch = input.match(/(vue|react)/i)
       return {
         componentName: nameMatch?.[1] || extractComponentName(input),
-        framework: frameworkMatch?.[1]?.toLowerCase() || 'vue',
+        framework: frameworkMatch?.[1]?.toLowerCase() || ctx.defaultFramework || 'vue',
       }
     },
   },
@@ -111,8 +111,12 @@ function extractComponentName(input: string): string {
  *   - 命中 1 个关键词 → 50%
  *   - 命中 2 个及以上 → 100%
  */
-export function intentClassifier(input: string): Intent {
+export function intentClassifier(
+  input: string,
+  opts?: { defaultFramework?: string }
+): Intent {
   const lowerInput = input.toLowerCase()
+  const defaultFramework = opts?.defaultFramework === 'react' ? 'react' : 'vue'
   // 默认值：general 意图，置信度 0.3（兜底）
   let bestMatch = { type: 'general', confidence: 0.3, params: {} as Record<string, string> }
 
@@ -126,7 +130,7 @@ export function intentClassifier(input: string): Intent {
       bestMatch = {
         type: pattern.type,
         confidence,
-        params: pattern.extract?.(input) || {}, // 可选链：有 extract 函数才调用
+        params: pattern.extract?.(input, { defaultFramework }) || {}, // 可选链：有 extract 函数才调用
       }
     }
   }
