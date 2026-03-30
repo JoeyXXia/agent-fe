@@ -3,27 +3,16 @@
  * 右侧代码预览面板
  * - 多文件：Tab 切换；**单入口 SFC**（含 `<template>`）仍用抽 template + iframe 预览一屏
  * - **完整 Vite 项目**：iframe 无法跑构建链；多文件且当前不可预览时展示说明，引导切换 .vue 或下载 ZIP 后本地 npm run dev
- * - 「代码」：highlight.js；「下载 ZIP」：JSZip 按路径打包
+ * - 「代码」：Monaco Editor 可编辑；「下载 ZIP」：JSZip 按路径打包；预览与复制与编辑内容一致（经 store 同步）
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import type { CodeBlock } from '@/types'
 import JSZip from 'jszip'
-import hljs from 'highlight.js/lib/core'
-import xml from 'highlight.js/lib/languages/xml'
-import javascript from 'highlight.js/lib/languages/javascript'
-import typescript from 'highlight.js/lib/languages/typescript'
-import css from 'highlight.js/lib/languages/css'
-import json from 'highlight.js/lib/languages/json'
-import plaintext from 'highlight.js/lib/languages/plaintext'
+import { useChatStore } from '@/stores/chat'
 
-hljs.registerLanguage('xml', xml)
-hljs.registerLanguage('plaintext', plaintext)
-hljs.registerLanguage('vue', xml)
-hljs.registerLanguage('html', xml)
-hljs.registerLanguage('javascript', javascript)
-hljs.registerLanguage('typescript', typescript)
-hljs.registerLanguage('css', css)
-hljs.registerLanguage('json', json)
+const MonacoEditor = defineAsyncComponent(() => import('@/components/MonacoEditor.vue'))
+
+const chatStore = useChatStore()
 
 const props = defineProps<{
   blocks: CodeBlock[]
@@ -54,21 +43,22 @@ watch(
 
 const current = computed(() => props.blocks[safeIndex.value])
 
-const highlightedCode = computed(() => {
-  const code = current.value?.code ?? ''
-  const rawLang = current.value?.language ?? 'plaintext'
-  try {
-    const lang =
-      rawLang === 'vue' || rawLang === 'tsx'
-        ? 'xml'
-        : rawLang === 'markdown'
-          ? 'plaintext'
-          : rawLang
-    return hljs.highlight(code, { language: lang }).value
-  } catch {
-    return escapeHtml(code)
-  }
-})
+/** 与文档一致：vue → html；tsx → typescript；无一体 SFC 时用 html 近似 */
+function mapLanguageToMonaco(raw: string | undefined): string {
+  const r = (raw || 'plaintext').toLowerCase()
+  if (r === 'vue') return 'html'
+  if (r === 'tsx') return 'typescript'
+  if (r === 'jsx') return 'javascript'
+  if (r === 'markdown') return 'plaintext'
+  if (r === 'shell' || r === 'other') return 'plaintext'
+  return r
+}
+
+const monacoLanguage = computed(() => mapLanguageToMonaco(current.value?.language))
+
+function onEditorUpdate(code: string) {
+  chatStore.updatePreviewBlockCode(safeIndex.value, code)
+}
 
 const previewHtml = computed(() => {
   const code = current.value?.code ?? ''
@@ -86,10 +76,6 @@ const canIframePreview = computed(() => {
 })
 
 const isMultiFile = computed(() => props.blocks.length > 1)
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
 
 async function copyCode() {
   try {
@@ -226,10 +212,13 @@ function shortName(path: string) {
     </div>
 
     <div class="flex-1 overflow-hidden min-h-0 bg-[#0d1117]">
-      <div v-if="activeTab === 'code'" class="h-full overflow-auto p-4">
-        <pre
-          class="text-[13px] sm:text-sm leading-6 font-mono rounded-lg overflow-x-auto shadow-inner"
-        ><code class="hljs" v-html="highlightedCode"></code></pre>
+      <div v-if="activeTab === 'code'" class="h-full min-h-0 flex flex-col p-0">
+        <MonacoEditor
+          class="flex-1 min-h-0"
+          :model-value="current?.code ?? ''"
+          :language="monacoLanguage"
+          @update:model-value="onEditorUpdate"
+        />
       </div>
 
       <div v-else class="h-full">

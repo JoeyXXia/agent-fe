@@ -39,11 +39,24 @@
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">内容</label>
             <textarea
+              v-if="!useCodeEditor"
               v-model="form.content"
               rows="10"
               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition text-sm font-mono resize-y"
               placeholder="在这里写下你的笔记、代码片段或技术总结..."
             />
+            <div
+              v-else
+              class="w-full rounded-lg overflow-hidden border border-gray-300 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent min-h-[280px] h-[min(50vh,420px)] bg-[#0d1117]"
+            >
+              <MonacoEditor
+                class="h-full min-h-[260px]"
+                :model-value="form.content"
+                :language="noteMonacoLanguage"
+                :minimap="false"
+                @update:model-value="(v) => (form.content = v)"
+              />
+            </div>
           </div>
 
           <div class="bg-purple-50 border border-purple-200 rounded-xl p-4">
@@ -123,8 +136,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { useNotesStore, type Note } from '../../stores/notes'
+
+const MonacoEditor = defineAsyncComponent(() => import('@/components/MonacoEditor.vue'))
 
 const props = defineProps<{
   note: Note | null
@@ -172,6 +187,28 @@ const languages = [
   { value: 'shell', label: 'Shell' },
   { value: 'other', label: '其他' },
 ]
+
+/** 与 MONACO-EDITOR.md：代码类语言用 Monaco；纯文本 / 其他保留 textarea */
+const CODE_EDITOR_LANGS = new Set([
+  'javascript',
+  'typescript',
+  'html',
+  'css',
+  'python',
+  'sql',
+  'markdown',
+  'json',
+  'shell',
+])
+
+const useCodeEditor = computed(() => CODE_EDITOR_LANGS.has(form.value.language))
+
+function mapNoteLanguageToMonaco(lang: string): string {
+  if (lang === 'shell') return 'plaintext'
+  return lang
+}
+
+const noteMonacoLanguage = computed(() => mapNoteLanguageToMonaco(form.value.language))
 
 async function handleSave(options?: { emitSaved?: boolean }) {
   const emitSaved = options?.emitSaved !== false

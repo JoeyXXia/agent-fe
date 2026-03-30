@@ -473,6 +473,15 @@ export const useChatStore = defineStore('chat', () => {
     previewFileIndex.value = Math.min(Math.max(0, i), max)
   }
 
+  /** 右侧预览内联编辑：同步到当前 previewBlocks，供预览 Tab / 复制 / ZIP 一致 */
+  function updatePreviewBlockCode(index: number, code: string) {
+    const blocks = previewBlocks.value
+    if (index < 0 || index >= blocks.length) return
+    const block = blocks[index]
+    if (block.code === code) return
+    block.code = code
+  }
+
   return {
     conversations,
     activeConversationId,
@@ -487,6 +496,7 @@ export const useChatStore = defineStore('chat', () => {
     previewBlocks,
     previewFileIndex,
     setPreviewFileIndex,
+    updatePreviewBlockCode,
     createConversation,
     setActiveConversation,
     deleteConversation,
