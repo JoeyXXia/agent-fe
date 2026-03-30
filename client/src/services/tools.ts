@@ -7,7 +7,29 @@
  * 扩展方式：实现 AgentTool 接口 → 添加到 toolRegistry 数组 → 在 planTemplates 中配置调用时机
  */
 import type { AgentTool, ToolResult, CodeBlock } from '@/types'
-import { componentTemplates } from './templates'
+import { componentTemplates, projectTemplates } from './templates'
+
+function recordToCodeBlocks(files: Record<string, string>): CodeBlock[] {
+  const base = Date.now()
+  let i = 0
+  return Object.entries(files).map(([filename, code]) => {
+    const ext = filename.split('.').pop() || ''
+    const langMap: Record<string, string> = {
+      vue: 'vue',
+      ts: 'typescript',
+      json: 'json',
+      html: 'html',
+      css: 'css',
+      scss: 'scss',
+    }
+    return {
+      id: `scaffold_${base}_${i++}`,
+      language: langMap[ext] || 'plaintext',
+      code,
+      filename,
+    }
+  })
+}
 
 // =============================================
 // 工具 1：组件生成器
@@ -47,6 +69,46 @@ const generateComponent: AgentTool = {
       success: true,
       data: { componentName: name, code, framework },
       message: `成功生成 ${framework.toUpperCase()} 组件 \`${name}\``,
+      codeBlocks,
+    }
+  },
+}
+
+// =============================================
+// 工具 1b：项目脚手架生成器
+// 按描述 / templateId 匹配 projectTemplates，返回多文件 CodeBlock（filename 为相对路径）
+// =============================================
+const generateProjectScaffold: AgentTool = {
+  name: 'generateProjectScaffold',
+  description: '根据描述生成前端项目脚手架（多文件，如 Vite + Vue + TS）',
+  icon: '📦',
+  parameters: [
+    { name: 'description', type: 'string', description: '项目需求或栈描述', required: true },
+    {
+      name: 'templateId',
+      type: 'string',
+      description: '模板 id（如 vite-vue-ts），可选',
+      required: false,
+    },
+  ],
+  async execute(args): Promise<ToolResult> {
+    const description = (args.description as string) || ''
+    const templateId = args.templateId as string | undefined
+
+    const template = projectTemplates.findBestMatch(description, templateId)
+    const files = template.generate()
+    const codeBlocks = recordToCodeBlocks(files)
+    const message = `已生成脚手架「${template.label}」(${template.id})，共 ${codeBlocks.length} 个文件`
+
+    return {
+      success: true,
+      data: {
+        templateId: template.id,
+        label: template.label,
+        files: Object.keys(files),
+        message,
+      },
+      message,
       codeBlocks,
     }
   },
@@ -239,6 +301,7 @@ function generateAnalysis(desc: string): string {
  */
 export const toolRegistry: AgentTool[] = [
   generateComponent,
+  generateProjectScaffold,
   generateStyles,
   analyzeCode,
   refactorCode,

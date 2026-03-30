@@ -384,6 +384,8 @@ export class AgentCore {
     /** 根据意图类型添加开头引导语 */
     if (intent.type === 'generate_component') {
       parts.push('已根据你的描述生成了组件，以下是详细内容：\n')
+    } else if (intent.type === 'generate_scaffold') {
+      parts.push('已根据你的描述生成项目脚手架，各文件如下：\n')
     } else if (intent.type === 'explain_code') {
       parts.push('以下是对代码的分析：\n')
     } else if (intent.type === 'refactor') {
@@ -417,6 +419,8 @@ export class AgentCore {
     /** 添加意图对应的结尾引导文本 */
     const summaryMap: Record<string, string> = {
       generate_component: '\n\n你可以将上面的代码直接复制到项目中使用。如需修改样式或功能，请继续告诉我。',
+      generate_scaffold:
+        '\n\n可将各文件保存到对应相对路径后执行 `npm install` 与 `npm run dev`。如需换栈或加依赖，请说明。',
       explain_code: '\n\n如果你还有其他疑问，请继续提问。',
       refactor: '\n\n这些优化建议可以帮助提升代码质量和可维护性。',
       debug: '\n\n如果问题仍然存在，请提供更多上下文信息。',

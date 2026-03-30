@@ -419,3 +419,204 @@ class ComponentTemplateRegistry {
 
 /** 导出单例供 generateComponent 工具使用 */
 export const componentTemplates = new ComponentTemplateRegistry()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 项目脚手架模板（多文件），供 generateProjectScaffold 使用
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 单套脚手架：关键词匹配 + 多文件生成（相对路径 → 源码） */
+export interface ProjectTemplate {
+  id: string
+  /** 与 findBestMatch 一致：描述中命中关键词越多分越高 */
+  keywords: string[]
+  /** 人类可读名称（日志 / UI） */
+  label: string
+  /** 生成相对路径到文件内容的映射 */
+  generate: () => Record<string, string>
+}
+
+const viteVueTsProject: ProjectTemplate = {
+  id: 'vite-vue-ts',
+  label: 'Vite + Vue 3 + TypeScript',
+  keywords: [
+    'vite',
+    'vue',
+    'vue3',
+    'vue 3',
+    'typescript',
+    'ts',
+    '脚手架',
+    'scaffold',
+    '初始化',
+    'starter',
+    'boilerplate',
+    '工程',
+    '项目模板',
+  ],
+  generate: () => ({
+    'package.json': `{
+  "name": "vite-vue-ts-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "typescript": "~5.6.0",
+    "vite": "^6.0.0",
+    "vue-tsc": "^2.2.0"
+  }
+}
+`,
+    'vite.config.ts': `import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+export default defineConfig({
+  plugins: [vue()],
+})
+`,
+    'tsconfig.json': `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "preserve",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "paths": { "@/*": ["./src/*"] },
+    "baseUrl": "."
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"]
+}
+`,
+    'tsconfig.node.json': `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler"
+  },
+  "include": ["vite.config.ts"]
+}
+`,
+    'index.html': `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + Vue + TS</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+`,
+    'src/vite-env.d.ts': `/// <reference types="vite/client" />
+`,
+    'src/main.ts': `import { createApp } from 'vue'
+import App from './App.vue'
+
+createApp(App).mount('#app')
+`,
+    'src/App.vue': `<script setup lang="ts">
+import Hello from './components/Hello.vue'
+</script>
+
+<template>
+  <main class="app">
+    <Hello />
+  </main>
+</template>
+
+<style scoped>
+.app {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: system-ui, sans-serif;
+}
+</style>
+`,
+    'src/components/Hello.vue': `<script setup lang="ts">
+defineProps<{ msg?: string }>()
+</script>
+
+<template>
+  <div class="hello">
+    <h1>{{ msg ?? 'Hello Vite + Vue + TS' }}</h1>
+    <p class="hint">编辑 <code>src/components/Hello.vue</code> 开始开发。</p>
+  </div>
+</template>
+
+<style scoped>
+.hello {
+  text-align: center;
+  padding: 2rem;
+}
+.hint {
+  color: #64748b;
+  margin-top: 0.75rem;
+}
+code {
+  background: #f1f5f9;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.9em;
+}
+</style>
+`,
+  }),
+}
+
+/** 关键词匹配逻辑与 ComponentTemplateRegistry.findBestMatch 相同思路 */
+class ProjectTemplateRegistry {
+  private templates: ProjectTemplate[] = [viteVueTsProject]
+
+  /**
+   * @param explicitTemplateId 来自 intent.params.templateId，若与某模板的 id 一致则直接选用
+   */
+  findBestMatch(description: string, explicitTemplateId?: string): ProjectTemplate {
+    const id = explicitTemplateId?.trim().toLowerCase()
+    if (id) {
+      const byId = this.templates.find((t) => t.id === id)
+      if (byId) return byId
+    }
+
+    const lowerDesc = description.toLowerCase()
+    let best: ProjectTemplate | null = null
+    let bestScore = 0
+
+    for (const template of this.templates) {
+      const score = template.keywords.filter((kw) => lowerDesc.includes(kw.toLowerCase())).length
+      if (score > bestScore) {
+        bestScore = score
+        best = template
+      }
+    }
+
+    return best || viteVueTsProject
+  }
+}
+
+/** 导出单例供 generateProjectScaffold 使用 */
+export const projectTemplates = new ProjectTemplateRegistry()

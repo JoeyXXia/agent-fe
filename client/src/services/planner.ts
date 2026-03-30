@@ -25,6 +25,28 @@ const INTENT_PATTERNS: Array<{
   extract?: (input: string, ctx: { defaultFramework: string }) => Record<string, string>
 }> = [
   {
+    type: 'generate_scaffold',
+    keywords: [
+      '脚手架',
+      'scaffold',
+      '项目',
+      '工程',
+      '初始化',
+      'starter',
+      'boilerplate',
+      '新建项目',
+      '搭一个项目',
+      'init project',
+      'vite',
+      '模板工程',
+    ],
+    extract: (input): Record<string, string> => {
+      const m = input.match(/\b(vite-vue-ts|vite_vue_ts)\b/i)
+      if (m) return { templateId: m[1].toLowerCase().replace(/_/g, '-') }
+      return {}
+    },
+  },
+  {
     type: 'generate_component',
     keywords: ['生成', '创建', '写一个', '做一个', '帮我写', '组件', 'component', '页面', '表单', '列表', '卡片', '按钮', '导航', '弹窗', 'modal', 'form', 'table', 'card', 'button', 'nav'],
     /** 参数提取：从输入中识别组件名和框架偏好 */
@@ -150,6 +172,11 @@ export function planGenerator(
   userInput: string
 ): AgentPlan {
   const planTemplates: Record<string, () => PlanStep[]> = {
+    /** 项目脚手架：直接生成多文件模板 */
+    generate_scaffold: () => [
+      { id: 's1', description: '匹配项目模板并生成脚手架文件', toolName: 'generateProjectScaffold', status: 'pending' },
+      { id: 's2', description: '整理输出', status: 'pending' },
+    ],
     /** 组件生成：分析 → 生成代码 → 生成样式 → 组装 */
     generate_component: () => [
       { id: 's1', description: '分析组件需求', status: 'pending' },
