@@ -16,6 +16,7 @@ import { errorHandler } from './middleware'
 import authRoutes from './routes/auth'
 import noteRoutes from './routes/notes'
 import agentRoutes from './routes/agent'
+import mcpRoutes from './routes/mcp'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -34,6 +35,7 @@ app.get('/api/health', (_, res) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/notes', noteRoutes)
 app.use('/api/agent', agentRoutes)
+app.use('/api/mcp', mcpRoutes)
 
 // 全局错误处理：必须注册在路由之后；Express 通过「四参数」识别错误处理中间件
 app.use(errorHandler)
