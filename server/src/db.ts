@@ -112,10 +112,35 @@ export async function initDB() {
     CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON agent_sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_messages_session ON agent_messages(session_id);
+
+    CREATE TABLE IF NOT EXISTS note_shares (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      note_id INTEGER NOT NULL,
+      shared_user_id INTEGER NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('read', 'write')),
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(note_id, shared_user_id),
+      FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+      FOREIGN KEY (shared_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_note_shares_shared_user ON note_shares(shared_user_id);
   `)
+
+  migrateNotesYjsColumn()
 
   persist()
   console.log('Database initialized at', DB_PATH)
+}
+
+/**
+ * 存量库补列：协作编辑用 Yjs 快照（BLOB）；新建库若已在完整 DDL 中声明可跳过
+ */
+function migrateNotesYjsColumn() {
+  try {
+    db.run('ALTER TABLE notes ADD COLUMN yjs_state BLOB')
+  } catch {
+    /* 列已存在 */
+  }
 }
 
 /**

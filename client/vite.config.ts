@@ -35,6 +35,12 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      /** 协作 WebSocket：与后端同机时可设 VITE_WS_URL 直连 3001，否则可用 ws://localhost:5173/yjs */
+      '/yjs': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 })

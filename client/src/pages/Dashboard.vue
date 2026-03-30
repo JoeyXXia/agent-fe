@@ -82,12 +82,19 @@
           @click="openEdit(note)"
           class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 hover:shadow-md hover:border-indigo-200 transition cursor-pointer group"
         >
-          <div class="flex items-start justify-between mb-2">
+          <div class="flex items-start justify-between mb-2 gap-2">
             <h3 class="font-semibold text-gray-800 group-hover:text-indigo-600 transition line-clamp-1">
               {{ note.title }}
             </h3>
+            <span
+              v-if="note.is_owner === false"
+              class="flex-shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-100 text-sky-700"
+            >
+              共享
+            </span>
             <!-- @click.stop 阻止冒泡到卡片，避免误触打开编辑 -->
             <button
+              v-if="note.share_role !== 'read'"
               @click.stop="notesStore.toggleFavorite(note.id)"
               class="text-lg ml-2 flex-shrink-0"
               :class="note.is_favorite ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'"

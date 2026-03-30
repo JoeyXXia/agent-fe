@@ -1,9 +1,5 @@
 /**
- * @file 笔记 REST API：列表/详情/增删改、统计、AI 分析
- * @description
- * 全路由经 `auth` 中间件保护，仅操作 `user_id` 与当前 JWT 用户一致的行，防止水平越权。
- * 查询条件通过 `?` 占位符与参数数组传入，避免 SQL 注入；动态拼接的片段仅为固定关键字与占位符。
- * HTTP：200 成功读取/更新、201 创建、400 参数错误、404 资源不存在、500 服务端错误（AI 失败）。
+ * @file 笔记 REST API：列表/详情/增删改、统计、AI 分析、共享与协作（Yjs 由 WebSocket 同步）
  */
 
 import { Router, Response } from 'express'
@@ -14,10 +10,8 @@ import { ingestNote, deleteChunksForSource } from '../services/rag'
 import { isEmbeddingConfigured } from '../services/embeddings'
 
 const router = Router()
-// 子路由级中间件：本文件内所有请求必须先通过 JWT 校验
 router.use(auth)
 
-/** GET /stats — 当前用户笔记聚合统计（200） */
 router.get('/stats', (req: AuthRequest, res: Response) => {
   const uid = req.userId!
   const total = (get('SELECT COUNT(*) as c FROM notes WHERE user_id = ?', [uid]) as any).c
@@ -30,46 +24,37 @@ router.get('/stats', (req: AuthRequest, res: Response) => {
   res.json({ total, favorites, withAI, languages })
 })
 
-/**
- * GET / — 列表，支持 query：q 关键词、tag 标签、favorite=1 仅收藏；按 updated_at 降序
- * 模糊搜索使用 LIKE + 绑定参数；注意 tag 为 JSON 字符串子串匹配的设计局限
- */
 router.get('/', (req: AuthRequest, res: Response) => {
   const { q, tag, favorite } = req.query
+  const uid = req.userId!
 
-  let sql = 'SELECT * FROM notes WHERE user_id = ?'
-  const params: any[] = [req.userId!]
+  let sql = `SELECT n.*,
+    (n.user_id = ?) as is_owner_mem,
+    (SELECT role FROM note_shares WHERE note_id = n.id AND shared_user_id = ? LIMIT 1) as share_role
+    FROM notes n
+    WHERE n.user_id = ? OR EXISTS (
+      SELECT 1 FROM note_shares s WHERE s.note_id = n.id AND s.shared_user_id = ?
+    )`
+  const params: any[] = [uid, uid, uid, uid]
 
   if (q) {
-    sql += ' AND (title LIKE ? OR content LIKE ?)'
+    sql += ' AND (n.title LIKE ? OR n.content LIKE ?)'
     params.push(`%${q}%`, `%${q}%`)
   }
   if (tag) {
-    sql += ' AND tags LIKE ?'
+    sql += ' AND n.tags LIKE ?'
     params.push(`%"${tag}"%`)
   }
   if (favorite === '1') {
-    sql += ' AND is_favorite = 1'
+    sql += ' AND n.is_favorite = 1'
   }
 
-  sql += ' ORDER BY updated_at DESC'
+  sql += ' ORDER BY n.updated_at DESC'
 
-  const notes = all(sql, params)
-  res.json(notes.map(parseNote))
+  const rows = all(sql, params)
+  res.json(rows.map((r) => parseNote(r)))
 })
 
-/** GET /:id — 单条详情；404 表示不存在或无权访问（统一不泄露是否存在他人笔记） */
-router.get('/:id', (req: AuthRequest, res: Response) => {
-  const note = findNote(Number(req.params.id), req.userId!)
-  if (!note) { res.status(404).json({ error: '笔记不存在' }); return }
-  res.json(parseNote(note))
-})
-
-/**
- * POST / — 新建笔记
- * - 201 Created：返回新建资源表示
- * - 400：标题或内容为空
- */
 router.post('/', (req: AuthRequest, res: Response) => {
   const { title, content, language } = req.body
 
@@ -92,40 +77,163 @@ router.post('/', (req: AuthRequest, res: Response) => {
       content: String(parsed.content),
     }).catch((e) => console.error('[RAG] ingest after create failed', e))
   }
-  res.status(201).json(parsed)
+  res.status(201).json({ ...parsed, is_owner: true, share_role: 'owner' })
 })
 
-/** PUT /:id — 部分字段更新；无有效字段时仍可返回当前行（200） */
+/** 共享成员列表（仅 owner） */
+router.get('/:id/shares', (req: AuthRequest, res: Response) => {
+  const id = Number(req.params.id)
+  const acc = getNoteAccess(id, req.userId!)
+  if (!acc) {
+    res.status(404).json({ error: '笔记不存在' })
+    return
+  }
+  if (acc.access !== 'owner') {
+    res.status(403).json({ error: '只有所有者可查看共享列表' })
+    return
+  }
+  const shares = all(
+    `SELECT s.shared_user_id as user_id, u.username, s.role
+     FROM note_shares s JOIN users u ON u.id = s.shared_user_id
+     WHERE s.note_id = ? ORDER BY u.username`,
+    [id]
+  )
+  res.json(shares)
+})
+
+/** 添加共享（仅 owner）；按用户名 */
+router.post('/:id/shares', (req: AuthRequest, res: Response) => {
+  const id = Number(req.params.id)
+  const acc = getNoteAccess(id, req.userId!)
+  if (!acc) {
+    res.status(404).json({ error: '笔记不存在' })
+    return
+  }
+  if (acc.access !== 'owner') {
+    res.status(403).json({ error: '只有所有者可添加共享' })
+    return
+  }
+  const { username, role } = req.body
+  if (!username?.trim() || !['read', 'write'].includes(role)) {
+    res.status(400).json({ error: '需要提供 username 与 role（read|write）' })
+    return
+  }
+  const target = get('SELECT id FROM users WHERE username = ?', [username.trim()]) as { id: number } | undefined
+  if (!target) {
+    res.status(404).json({ error: '用户不存在' })
+    return
+  }
+  if (target.id === req.userId!) {
+    res.status(400).json({ error: '不能共享给自己' })
+    return
+  }
+  const ownerId = acc.note.user_id
+  if (target.id === ownerId) {
+    res.status(400).json({ error: '不能与所有者重复共享' })
+    return
+  }
+  try {
+    run(
+      'INSERT INTO note_shares (note_id, shared_user_id, role) VALUES (?, ?, ?)',
+      [id, target.id, role]
+    )
+  } catch {
+    res.status(409).json({ error: '已共享给该用户' })
+    return
+  }
+  res.status(201).json({ user_id: target.id, username: username.trim(), role })
+})
+
+router.delete('/:id/shares/:userId', (req: AuthRequest, res: Response) => {
+  const id = Number(req.params.id)
+  const shareUid = Number(req.params.userId)
+  const acc = getNoteAccess(id, req.userId!)
+  if (!acc) {
+    res.status(404).json({ error: '笔记不存在' })
+    return
+  }
+  if (acc.access !== 'owner') {
+    res.status(403).json({ error: '只有所有者可移除共享' })
+    return
+  }
+  run('DELETE FROM note_shares WHERE note_id = ? AND shared_user_id = ?', [id, shareUid])
+  res.json({ ok: true })
+})
+
+router.get('/:id', (req: AuthRequest, res: Response) => {
+  const id = Number(req.params.id)
+  const acc = getNoteAccess(id, req.userId!)
+  if (!acc) {
+    res.status(404).json({ error: '笔记不存在' })
+    return
+  }
+  res.json(parseNote(acc.note, acc.access))
+})
+
 router.put('/:id', (req: AuthRequest, res: Response) => {
   const id = Number(req.params.id)
-  const note = findNote(id, req.userId!)
-  if (!note) { res.status(404).json({ error: '笔记不存在' }); return }
+  const acc = getNoteAccess(id, req.userId!)
+  if (!acc) {
+    res.status(404).json({ error: '笔记不存在' })
+    return
+  }
+  if (acc.access === 'read') {
+    res.status(403).json({ error: '只读共享无法修改笔记' })
+    return
+  }
 
   const { title, content, language, tags, summary, is_favorite } = req.body
+  const raw = acc.note as any
+  const hasYjs = raw.yjs_state != null && raw.yjs_state.byteLength > 0
+
+  if (content !== undefined && hasYjs) {
+    res.status(409).json({
+      error: '已启用协作编辑（存在 Yjs 状态）。正文请通过实时协作同步，勿用 REST 提交 content。',
+    })
+    return
+  }
+
   const updates: string[] = []
   const values: any[] = []
 
-  if (title !== undefined) { updates.push('title = ?'); values.push(title) }
-  if (content !== undefined) { updates.push('content = ?'); values.push(content) }
-  if (language !== undefined) { updates.push('language = ?'); values.push(language) }
-  if (tags !== undefined) { updates.push('tags = ?'); values.push(JSON.stringify(tags)) }
-  if (summary !== undefined) { updates.push('summary = ?'); values.push(summary) }
-  if (is_favorite !== undefined) { updates.push('is_favorite = ?'); values.push(is_favorite ? 1 : 0) }
+  if (title !== undefined) {
+    updates.push('title = ?')
+    values.push(title)
+  }
+  if (content !== undefined) {
+    updates.push('content = ?')
+    values.push(content)
+  }
+  if (language !== undefined) {
+    updates.push('language = ?')
+    values.push(language)
+  }
+  if (tags !== undefined) {
+    updates.push('tags = ?')
+    values.push(JSON.stringify(tags))
+  }
+  if (summary !== undefined) {
+    updates.push('summary = ?')
+    values.push(summary)
+  }
+  if (is_favorite !== undefined) {
+    updates.push('is_favorite = ?')
+    values.push(is_favorite ? 1 : 0)
+  }
 
-  const touchedBody =
-    content !== undefined || title !== undefined
+  const ownerId = raw.user_id as number
+  const touchedBody = content !== undefined || title !== undefined
 
   if (updates.length > 0) {
     updates.push("updated_at = datetime('now')")
-    values.push(id, req.userId!)
-    // WHERE 同时带 id 与 user_id，确保只能改自己的笔记
+    values.push(id, ownerId)
     run(`UPDATE notes SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, values)
   }
 
   const updated = get('SELECT * FROM notes WHERE id = ?', [id])
-  const parsed = parseNote(updated)
+  const parsed = parseNote(updated, acc.access)
   if (isEmbeddingConfigured() && touchedBody) {
-    void ingestNote(req.userId!, {
+    void ingestNote(ownerId, {
       id: parsed.id,
       title: String(parsed.title),
       content: String(parsed.content),
@@ -134,13 +242,16 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
   res.json(parsed)
 })
 
-/** DELETE /:id — 删除；changes 为 0 时 404 */
 router.delete('/:id', (req: AuthRequest, res: Response) => {
   const nid = Number(req.params.id)
   const uid = req.userId!
-  const existing = findNote(nid, uid)
-  if (!existing) {
+  const acc = getNoteAccess(nid, uid)
+  if (!acc) {
     res.status(404).json({ error: '笔记不存在' })
+    return
+  }
+  if (acc.access !== 'owner') {
+    res.status(403).json({ error: '只有所有者可删除笔记' })
     return
   }
   deleteChunksForSource(uid, 'note', nid)
@@ -148,15 +259,19 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
   res.json({ ok: true })
 })
 
-/**
- * POST /:id/ai-analyze — 调用 LLM 生成摘要与标签并写回数据库
- * - 200：返回 summary 与 tags
- * - 404：笔记不存在
- * - 500：LLM 或持久化异常
- */
 router.post('/:id/ai-analyze', async (req: AuthRequest, res: Response) => {
-  const note = findNote(Number(req.params.id), req.userId!) as any
-  if (!note) { res.status(404).json({ error: '笔记不存在' }); return }
+  const id = Number(req.params.id)
+  const acc = getNoteAccess(id, req.userId!)
+  if (!acc) {
+    res.status(404).json({ error: '笔记不存在' })
+    return
+  }
+  if (acc.access === 'read') {
+    res.status(403).json({ error: '只读共享无法使用 AI 分析' })
+    return
+  }
+
+  const note = acc.note as any
 
   try {
     const [summary, tags] = await Promise.all([
@@ -164,6 +279,7 @@ router.post('/:id/ai-analyze', async (req: AuthRequest, res: Response) => {
       generateTags(note.title, note.content),
     ])
 
+    const ownerId = note.user_id as number
     run(
       "UPDATE notes SET summary = ?, tags = ?, updated_at = datetime('now') WHERE id = ?",
       [summary, JSON.stringify(tags), note.id]
@@ -175,18 +291,49 @@ router.post('/:id/ai-analyze', async (req: AuthRequest, res: Response) => {
   }
 })
 
-/** 按主键与用户 ID 查询单行，用于鉴权下的资源定位 */
-function findNote(id: number, userId: number) {
-  return get('SELECT * FROM notes WHERE id = ? AND user_id = ?', [id, userId])
+type NoteAccess = { note: any; access: 'owner' | 'read' | 'write' }
+
+function getNoteAccess(noteId: number, userId: number): NoteAccess | null {
+  const note = get('SELECT * FROM notes WHERE id = ?', [noteId]) as any
+  if (!note) return null
+  if (note.user_id === userId) return { note, access: 'owner' }
+  const share = get(
+    'SELECT role FROM note_shares WHERE note_id = ? AND shared_user_id = ?',
+    [noteId, userId]
+  ) as { role: string } | undefined
+  if (!share) return null
+  return { note, access: share.role as 'read' | 'write' }
 }
 
-/** 将存储层的 JSON 字符串 tags、整型 is_favorite 转为 API 友好形态 */
-function parseNote(note: any) {
-  if (!note) return note
+function parseNote(row: any, access?: 'owner' | 'read' | 'write') {
+  if (!row) return row
+  const has_yjs_state = !!(row.yjs_state && row.yjs_state.byteLength > 0)
+  const copy = { ...row }
+  delete copy.yjs_state
+  delete copy.is_owner_mem
+
+  const is_owner_mem = row.is_owner_mem
+  let is_owner: boolean | undefined
+  let share_role: string | null | undefined
+
+  if (access === 'owner') {
+    is_owner = true
+    share_role = 'owner'
+  } else if (access === 'read' || access === 'write') {
+    is_owner = false
+    share_role = access
+  } else if (is_owner_mem != null) {
+    is_owner = !!is_owner_mem
+    share_role = is_owner ? 'owner' : row.share_role || null
+  }
+
   return {
-    ...note,
-    tags: JSON.parse(note.tags || '[]'),
-    is_favorite: !!note.is_favorite,
+    ...copy,
+    tags: JSON.parse(row.tags || '[]'),
+    is_favorite: !!row.is_favorite,
+    is_owner,
+    share_role: share_role ?? null,
+    has_yjs_state,
   }
 }
 

@@ -10,9 +10,9 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { run, get } from '../db'
+import { JWT_SECRET } from '../middleware'
 
 const router = Router()
-const SECRET = process.env.JWT_SECRET || 'devnotes-jwt-secret-change-me'
 
 /**
  * POST /register — 用户注册
@@ -51,7 +51,7 @@ router.post('/register', (req, res) => {
   )
 
   // JWT payload 仅含 userId；expiresIn 控制过期时间
-  const token = jwt.sign({ userId: lastID }, SECRET, { expiresIn: '7d' })
+  const token = jwt.sign({ userId: lastID }, JWT_SECRET, { expiresIn: '7d' })
   res.status(201).json({ token, user: { id: lastID, username: username.trim() } })
 })
 
@@ -75,7 +75,7 @@ router.post('/login', (req, res) => {
     return
   }
 
-  const token = jwt.sign({ userId: user.id }, SECRET, { expiresIn: '7d' })
+  const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' })
   res.json({ token, user: { id: user.id, username: user.username } })
 })
 

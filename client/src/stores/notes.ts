@@ -28,6 +28,17 @@ export interface Note {
   is_favorite: boolean
   created_at: string
   updated_at: string
+  /** 是否本人所有 */
+  is_owner?: boolean
+  share_role?: 'owner' | 'read' | 'write' | null
+  /** 服务端是否已有 Yjs 快照（此后勿 REST 改 content） */
+  has_yjs_state?: boolean
+}
+
+export interface NoteShare {
+  user_id: number
+  username: string
+  role: 'read' | 'write'
 }
 
 /** 笔记聚合统计：用于概览页展示，与列表接口分离 */
@@ -130,6 +141,20 @@ export const useNotesStore = defineStore('notes', () => {
     return data as { summary: string; tags: string[] }
   }
 
+  async function fetchNoteShares(noteId: number) {
+    const { data } = await api.get<NoteShare[]>(`/notes/${noteId}/shares`)
+    return data
+  }
+
+  async function addNoteShare(noteId: number, username: string, role: 'read' | 'write') {
+    const { data } = await api.post<NoteShare>(`/notes/${noteId}/shares`, { username, role })
+    return data
+  }
+
+  async function removeNoteShare(noteId: number, userId: number) {
+    await api.delete(`/notes/${noteId}/shares/${userId}`)
+  }
+
   return {
     notes,
     stats,
@@ -141,5 +166,8 @@ export const useNotesStore = defineStore('notes', () => {
     deleteNote,
     toggleFavorite,
     aiAnalyze,
+    fetchNoteShares,
+    addNoteShare,
+    removeNoteShare,
   }
 })

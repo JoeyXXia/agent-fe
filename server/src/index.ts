@@ -9,6 +9,7 @@
 import dotenv from 'dotenv'
 dotenv.config()
 
+import http from 'http'
 import express from 'express'
 import cors from 'cors'
 import { initDB } from './db'
@@ -17,6 +18,7 @@ import authRoutes from './routes/auth'
 import noteRoutes from './routes/notes'
 import agentRoutes from './routes/agent'
 import mcpRoutes from './routes/mcp'
+import { attachYjsWebSocket } from './collab/yjsWs'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -45,8 +47,10 @@ app.use(errorHandler)
  */
 async function main() {
   await initDB()
-  app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`)
+  const server = http.createServer(app)
+  attachYjsWebSocket(server)
+  server.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT} (HTTP + /yjs WebSocket)`)
   })
 }
 

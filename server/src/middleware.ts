@@ -10,8 +10,8 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 
-// 须与签发 token 的路由（如 auth）使用同一密钥；生产环境务必通过环境变量配置强随机密钥
-const SECRET = process.env.JWT_SECRET || 'devnotes-jwt-secret-change-me'
+/** 须与签发 token 的路由（如 auth）使用同一密钥；生产环境务必通过环境变量配置强随机密钥 */
+export const JWT_SECRET = process.env.JWT_SECRET || 'devnotes-jwt-secret-change-me'
 
 /** 扩展 Request，在通过 auth 后携带当前用户主键 */
 export interface AuthRequest extends Request {
@@ -30,12 +30,23 @@ export function auth(req: AuthRequest, res: Response, next: NextFunction) {
   }
   try {
     // slice(7) 去掉 "Bearer " 前缀；payload 须与 jwt.sign 时字段一致
-    const payload = jwt.verify(header.slice(7), SECRET) as { userId: number }
+    const payload = jwt.verify(header.slice(7), JWT_SECRET) as { userId: number }
     req.userId = payload.userId
     next()
   } catch {
     // 签名错误、过期等均视为未授权，不区分细节以免辅助攻击面探测
     res.status(401).json({ error: 'token 无效或已过期' })
+  }
+}
+
+/** WebSocket queryToken 等场景：校验成功返回 userId，失败返回 null（勿记录 token 原文） */
+export function verifyToken(token: string | null | undefined): { userId: number } | null {
+  if (!token?.trim()) return null
+  try {
+    const payload = jwt.verify(token.trim(), JWT_SECRET) as { userId: number }
+    return { userId: payload.userId }
+  } catch {
+    return null
   }
 }
 
