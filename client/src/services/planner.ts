@@ -28,6 +28,10 @@ const INTENT_PATTERNS: Array<{
     /** 初始化 / 多包仓库等「项目级」生成，区别于单文件组件 */
     type: 'generate_project',
     keywords: [
+      // 强触发「项目级」生成的短语（避免仅命中「生成」而走组件链）
+      '生成项目',
+      '创建项目',
+      '搭项目',
       '脚手架',
       'scaffold',
       '项目',

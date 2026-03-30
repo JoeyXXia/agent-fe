@@ -206,7 +206,16 @@ export class AgentCore {
         return message
       } catch (e) {
         if (isAbortLike(e)) throw e
-        // 未登录、未配置 LLM 或超时：回退到本地 ReAct
+        // 未登录、未配置 LLM、超时或空响应：回退到本地 ReAct（给用户可见说明，避免误以为白屏/无响应）
+        const llmFallbackStep: ThinkingStep = {
+          id: uid('think'),
+          type: 'reasoning',
+          content:
+            '服务端模型请求失败或返回为空，已自动切换为本地 ReAct（意图识别 + 工具），请继续查看下方回复。',
+          timestamp: Date.now(),
+        }
+        thinkingSteps.push(llmFallbackStep)
+        onThinking?.(llmFallbackStep)
       }
     }
 
