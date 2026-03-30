@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
  * 右侧代码预览面板
- * - 支持单文件或多文件（`blocks[]`）：多文件时顶栏增加文件 Tab 切换，仍用当前选中项驱动高亮与预览
- * - 「代码」：highlight.js；「预览」：仅当选中文件为含 `<template>` 的 Vue SFC 时可用
- * - 「下载 ZIP」：JSZip 打包全部 `filename` + 内容，便于本地解压后 npm install
+ * - 多文件：Tab 切换；**单入口 SFC**（含 `<template>`）仍用抽 template + iframe 预览一屏
+ * - **完整 Vite 项目**：iframe 无法跑构建链；多文件且当前不可预览时展示说明，引导切换 .vue 或下载 ZIP 后本地 npm run dev
+ * - 「代码」：highlight.js；「下载 ZIP」：JSZip 按路径打包
  */
 import { ref, computed, watch } from 'vue'
 import type { CodeBlock } from '@/types'
@@ -79,10 +79,13 @@ const previewHtml = computed(() => {
   return `<div class="p-8 text-center text-gray-500">此类型的代码不支持实时预览</div>`
 })
 
+/** 当前选中文件是否可用「抽 template」在 iframe 内做单屏预览 */
 const canIframePreview = computed(() => {
   const lang = current.value?.language
   return lang === 'vue' && /<template>/.test(current.value?.code ?? '')
 })
+
+const isMultiFile = computed(() => props.blocks.length > 1)
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -172,8 +175,7 @@ function shortName(path: string) {
           <button
             class="px-3 py-1.5 rounded-lg text-xs font-medium transition"
             :class="activeTab === 'preview' ? 'bg-dark-700 text-white' : 'text-dark-400 hover:text-white'"
-            :disabled="!canIframePreview"
-            @click="canIframePreview && (activeTab = 'preview')"
+            @click="activeTab = 'preview'"
           >
             预览
           </button>
@@ -237,8 +239,38 @@ function shortName(path: string) {
           class="w-full h-full border-0 bg-white"
           sandbox="allow-scripts allow-same-origin"
         ></iframe>
-        <div v-else class="h-full flex items-center justify-center text-dark-500 text-sm px-4 text-center">
-          请切换到「.vue」且含 &lt;template&gt; 的文件以使用实时预览
+        <div
+          v-else
+          class="h-full overflow-auto p-5 text-sm text-dark-300 leading-relaxed"
+        >
+          <div v-if="isMultiFile" class="max-w-md mx-auto space-y-3">
+            <p class="text-dark-100 font-medium">多文件 / 完整 Vite 项目</p>
+            <p class="text-dark-400">
+              浏览器内 iframe <span class="text-dark-200">无法</span> 运行完整构建链（没有
+              <code class="px-1 py-0.5 rounded bg-dark-800 text-primary-300 text-xs">vite</code> /
+              <code class="px-1 py-0.5 rounded bg-dark-800 text-primary-300 text-xs">npm run dev</code>）。
+              合理预期：
+            </p>
+            <ul class="list-disc list-inside text-dark-400 space-y-2 pl-1">
+              <li>
+                切换到含
+                <code class="text-primary-300">&lt;template&gt;</code>
+                的
+                <code class="text-primary-300">.vue</code>
+                （如 <code class="text-primary-300">App.vue</code>、<code class="text-primary-300">Hello.vue</code>）可预览<strong class="text-dark-200">单入口 SFC 的一屏</strong>（仍用现有抽 template 逻辑）；
+              </li>
+              <li>
+                查看<strong class="text-dark-200">整站效果</strong>请点上方
+                <strong class="text-dark-200">下载 ZIP</strong>，解压后执行
+                <code class="px-1 py-0.5 rounded bg-dark-800 text-primary-300 text-xs">npm install</code>
+                与
+                <code class="px-1 py-0.5 rounded bg-dark-800 text-primary-300 text-xs">npm run dev</code>。
+              </li>
+            </ul>
+          </div>
+          <div v-else class="h-full flex items-center justify-center text-dark-500 text-center px-4">
+            请使用含 <code class="text-primary-300">&lt;template&gt;</code> 的 Vue SFC 以使用实时预览
+          </div>
         </div>
       </div>
     </div>
