@@ -415,13 +415,26 @@ export class AgentCore {
       }
     }
 
-    /** 将代码块格式化为 Markdown 代码围栏 */
+    /**
+     * 代码块写入正文：
+     * - generate_project：多文件体积大，若逐段 fenced 再经 streamText 会按「每字符延迟」拖几分钟；
+     *   完整源码已在 message.codeBlocks，由右侧预览 / ZIP / 气泡「打开预览」展示，此处只列路径清单。
+     */
     if (codeBlocks.length > 0) {
-      for (const block of codeBlocks) {
-        if (block.filename) {
-          parts.push(`\n**${block.filename}**`)
+      if (intent.type === 'generate_project') {
+        parts.push(
+          `\n**共 ${codeBlocks.length} 个文件**（源码在结构化 codeBlocks，请点击本条消息下方 **「在右侧打开预览」** 或使用右侧 Tab / **下载 ZIP**）：`
+        )
+        for (const block of codeBlocks) {
+          parts.push(`- \`${block.filename || block.language}\``)
         }
-        parts.push(`\n\`\`\`${block.language}\n${block.code}\n\`\`\``)
+      } else {
+        for (const block of codeBlocks) {
+          if (block.filename) {
+            parts.push(`\n**${block.filename}**`)
+          }
+          parts.push(`\n\`\`\`${block.language}\n${block.code}\n\`\`\``)
+        }
       }
     }
 
@@ -450,6 +463,13 @@ export class AgentCore {
     callback: StreamCallback,
     signal?: AbortSignal
   ) {
+    /** 过长时禁止逐字延迟，否则单轮可卡住数分钟（多文件 Markdown 等） */
+    const STREAM_CHAR_BUDGET = 4000
+    if (text.length > STREAM_CHAR_BUDGET) {
+      callback(text)
+      return
+    }
+
     const chars = text.split('')
     let buffer = ''
     for (const char of chars) {
