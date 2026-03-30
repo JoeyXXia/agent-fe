@@ -227,11 +227,9 @@ export class AgentCore {
       options?.conversationMessages
     )
 
-    // 本地工具模板目前只支持 Vue 生成；若用户偏好为 React，fallback 时仍使用 Vue 兜底。
-    const localDefaultFramework: 'vue' | 'react' =
-      options?.userPreferences?.defaultFramework === 'react'
-        ? 'vue'
-        : options?.userPreferences?.defaultFramework || 'vue'
+    // 与 planner / 模板库一致：默认框架来自用户偏好（vue | react），聊天里可再指定 svelte / solid
+    const localDefaultFramework =
+      options?.userPreferences?.defaultFramework === 'react' ? 'react' : 'vue'
     const planningStep: ThinkingStep = {
       id: uid('think'),
       type: 'planning',

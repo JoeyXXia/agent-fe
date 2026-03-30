@@ -12,7 +12,7 @@
 /** 组件模板接口：关键词 + 框架标识 + 代码生成函数 */
 interface ComponentTemplate {
   keywords: string[]  // 匹配关键词（中英文），用于 findBestMatch 评分
-  framework: string   // 框架标识（vue / react），用于过滤
+  framework: string   // 框架标识：vue | react | svelte | solid，用于过滤
   generate: (name: string, description: string) => string  // 生成完整 SFC 代码
 }
 
@@ -356,6 +356,418 @@ function removeTodo(id: number) {
   },
 ]
 
+// ━━━ React：与 Vue 同场景关键词，靠 framework 区分 ━━━
+const reactTemplates: ComponentTemplate[] = [
+  {
+    keywords: ['登录', 'login', '表单', 'form', '注册', 'register'],
+    framework: 'react',
+    generate: (name: string) => `import { useState, type FormEvent } from 'react'
+
+interface FormState {
+  username: string
+  password: string
+}
+
+export function ${name}() {
+  const [form, setForm] = useState<FormState>({ username: '', password: '' })
+  const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  const rules = {
+    username: (val: string) => val.length >= 3 || '用户名至少3个字符',
+    password: (val: string) => val.length >= 6 || '密码至少6个字符',
+  }
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setErrorMsg('')
+    const u = rules.username(form.username)
+    if (u !== true) { setErrorMsg(u); return }
+    const p = rules.password(form.password)
+    if (p !== true) { setErrorMsg(p); return }
+    setLoading(true)
+    try {
+      await new Promise((r) => setTimeout(r, 1500))
+      console.log('提交成功:', form)
+    } catch {
+      setErrorMsg('提交失败，请重试')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-bold text-gray-900">欢迎回来</h1>
+          <p className="text-gray-500 mt-2">请登录你的账户</p>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+            <input
+              value={form.username}
+              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+              type="text"
+              placeholder="请输入用户名"
+              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">密码</label>
+            <input
+              value={form.password}
+              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+              type="password"
+              placeholder="请输入密码"
+              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+          {errorMsg ? <div className="text-red-500 text-sm bg-red-50 p-3 rounded-lg">{errorMsg}</div> : null}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+          >
+            {loading ? (
+              <span className="inline-flex items-center justify-center gap-2">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                登录中...
+              </span>
+            ) : (
+              '登 录'
+            )}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+`,
+  },
+  {
+    keywords: ['卡片', 'card', '展示', '信息'],
+    framework: 'react',
+    generate: (name: string) => `import { useState } from 'react'
+
+interface CardItem {
+  id: number
+  title: string
+  description: string
+  image: string
+  tags: string[]
+  date: string
+}
+
+const initialCards: CardItem[] = [
+  { id: 1, title: '深入理解 React 18', description: '并发特性、Suspense 与过渡更新...', image: 'https://picsum.photos/400/200?random=1', tags: ['React', '并发'], date: '2025-03-15' },
+  { id: 2, title: 'TypeScript 与 JSX', description: '组件 props、泛型与事件类型...', image: 'https://picsum.photos/400/200?random=2', tags: ['TypeScript', 'JSX'], date: '2025-03-12' },
+  { id: 3, title: '前端工程化', description: '从构建到部署的完整链路...', image: 'https://picsum.photos/400/200?random=3', tags: ['工程化', '实战'], date: '2025-03-10' },
+]
+
+export function ${name}() {
+  const [cards] = useState<CardItem[]>(initialCards)
+  const [hoveredId, setHoveredId] = useState<number | null>(null)
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
+      {cards.map((card) => (
+        <div
+          key={card.id}
+          className={
+            'group bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden cursor-pointer' +
+            (hoveredId === card.id ? ' scale-[1.02]' : '')
+          }
+          onMouseEnter={() => setHoveredId(card.id)}
+          onMouseLeave={() => setHoveredId(null)}
+        >
+          <div className="h-48 overflow-hidden">
+            <img src={card.image} alt={card.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+          </div>
+          <div className="p-5">
+            <div className="flex gap-2 mb-3">
+              {card.tags.map((tag) => (
+                <span key={tag} className="px-2 py-1 text-xs font-medium bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+              ))}
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-1">{card.title}</h3>
+            <p className="text-gray-500 text-sm line-clamp-2 mb-3">{card.description}</p>
+            <div className="text-xs text-gray-400">{card.date}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+`,
+  },
+]
+
+const svelteTemplates: ComponentTemplate[] = [
+  {
+    keywords: ['登录', 'login', '表单', 'form', '注册', 'register'],
+    framework: 'svelte',
+    generate: (name: string) => `<script lang="ts">
+let username = ''
+let password = ''
+let loading = false
+let errorMsg = ''
+
+const rules = {
+  username: (val: string) => val.length >= 3 || '用户名至少3个字符',
+  password: (val: string) => val.length >= 6 || '密码至少6个字符',
+}
+
+async function handleSubmit(e: Event) {
+  e.preventDefault()
+  errorMsg = ''
+  const u = rules.username(username)
+  if (u !== true) { errorMsg = u; return }
+  const p = rules.password(password)
+  if (p !== true) { errorMsg = p; return }
+  loading = true
+  try {
+    await new Promise((r) => setTimeout(r, 1500))
+    console.log('提交成功:', { username, password })
+  } catch {
+    errorMsg = '提交失败，请重试'
+  } finally {
+    loading = false
+  }
+}
+</script>
+
+<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+  <div class="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
+    <div class="text-center mb-8">
+      <h1 class="text-2xl font-bold text-gray-900">欢迎回来</h1>
+      <p class="text-gray-500 mt-2">请登录你的账户</p>
+    </div>
+    <form on:submit|preventDefault={handleSubmit} class="space-y-5">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+        <input bind:value={username} type="text" placeholder="请输入用户名"
+          class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+        <input bind:value={password} type="password" placeholder="请输入密码"
+          class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition" />
+      </div>
+      {#if errorMsg}
+        <div class="text-red-500 text-sm bg-red-50 p-3 rounded-lg">{errorMsg}</div>
+      {/if}
+      <button type="submit" disabled={loading}
+        class="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
+        {#if loading}
+          <span class="inline-flex items-center gap-2">
+            <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            登录中...
+          </span>
+        {:else}
+          登 录
+        {/if}
+      </button>
+    </form>
+  </div>
+</div>
+`,
+  },
+  {
+    keywords: ['卡片', 'card', '展示', '信息'],
+    framework: 'svelte',
+    generate: (name: string) => `<script lang="ts">
+interface CardItem {
+  id: number
+  title: string
+  description: string
+  image: string
+  tags: string[]
+  date: string
+}
+
+let cards: CardItem[] = [
+  { id: 1, title: '深入理解 Svelte', description: '响应式编译与细粒度更新...', image: 'https://picsum.photos/400/200?random=1', tags: ['Svelte', '编译'], date: '2025-03-15' },
+  { id: 2, title: 'TypeScript 与 Svelte', description: '类型安全的组件与 store...', image: 'https://picsum.photos/400/200?random=2', tags: ['TypeScript'], date: '2025-03-12' },
+  { id: 3, title: '前端体验', description: '小而美的运行时与动画...', image: 'https://picsum.photos/400/200?random=3', tags: ['体验', '动画'], date: '2025-03-10' },
+]
+
+let hoveredId: number | null = null
+</script>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
+  {#each cards as card (card.id)}
+    <div
+      class={'group bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden cursor-pointer' + (hoveredId === card.id ? ' scale-[1.02]' : '')}
+      on:mouseenter={() => (hoveredId = card.id)}
+      on:mouseleave={() => (hoveredId = null)}
+    >
+      <div class="h-48 overflow-hidden">
+        <img src={card.image} alt={card.title} class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+      </div>
+      <div class="p-5">
+        <div class="flex gap-2 mb-3">
+          {#each card.tags as tag}
+            <span class="px-2 py-1 text-xs font-medium bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+          {/each}
+        </div>
+        <h3 class="text-lg font-semibold text-gray-900 mb-2 line-clamp-1">{card.title}</h3>
+        <p class="text-gray-500 text-sm line-clamp-2 mb-3">{card.description}</p>
+        <div class="text-xs text-gray-400">{card.date}</div>
+      </div>
+    </div>
+  {/each}
+</div>
+`,
+  },
+]
+
+const solidTemplates: ComponentTemplate[] = [
+  {
+    keywords: ['登录', 'login', '表单', 'form', '注册', 'register'],
+    framework: 'solid',
+    generate: (name: string) => `/**
+ * Framework: SolidJS (solid-js) — 非 React。需在 Solid 项目中运行。
+ */
+import { createSignal } from 'solid-js'
+
+export function ${name}() {
+  const [username, setUsername] = createSignal('')
+  const [password, setPassword] = createSignal('')
+  const [loading, setLoading] = createSignal(false)
+  const [errorMsg, setErrorMsg] = createSignal('')
+
+  const rules = {
+    username: (val: string) => val.length >= 3 || '用户名至少3个字符',
+    password: (val: string) => val.length >= 6 || '密码至少6个字符',
+  }
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault()
+    setErrorMsg('')
+    const u = rules.username(username())
+    if (u !== true) { setErrorMsg(u); return }
+    const p = rules.password(password())
+    if (p !== true) { setErrorMsg(p); return }
+    setLoading(true)
+    try {
+      await new Promise((r) => setTimeout(r, 1500))
+      console.log('提交成功:', { username: username(), password: password() })
+    } catch {
+      setErrorMsg('提交失败，请重试')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div class="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
+        <div class="text-center mb-8">
+          <h1 class="text-2xl font-bold text-gray-900">欢迎回来</h1>
+          <p class="text-gray-500 mt-2">请登录你的账户</p>
+        </div>
+        <form onSubmit={handleSubmit} class="space-y-5">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+            <input
+              value={username()}
+              onInput={(e) => setUsername(e.currentTarget.value)}
+              type="text"
+              placeholder="请输入用户名"
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+            <input
+              value={password()}
+              onInput={(e) => setPassword(e.currentTarget.value)}
+              type="password"
+              placeholder="请输入密码"
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+          {errorMsg() ? <div class="text-red-500 text-sm bg-red-50 p-3 rounded-lg">{errorMsg()}</div> : null}
+          <button
+            type="submit"
+            disabled={loading()}
+            class="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+          >
+            {loading() ? (
+              <span class="inline-flex items-center justify-center gap-2">
+                <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                登录中...
+              </span>
+            ) : (
+              '登 录'
+            )}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+`,
+  },
+  {
+    keywords: ['卡片', 'card', '展示', '信息'],
+    framework: 'solid',
+    generate: (name: string) => `/**
+ * Framework: SolidJS (solid-js) — 非 React。
+ */
+import { createSignal, For } from 'solid-js'
+
+interface CardItem {
+  id: number
+  title: string
+  description: string
+  image: string
+  tags: string[]
+  date: string
+}
+
+const initial: CardItem[] = [
+  { id: 1, title: '深入理解 Solid', description: '细粒度响应式与 JSX...', image: 'https://picsum.photos/400/200?random=1', tags: ['Solid', '响应式'], date: '2025-03-15' },
+  { id: 2, title: 'Signals 与控制流', description: 'Show、For、createMemo 实践...', image: 'https://picsum.photos/400/200?random=2', tags: ['Solid', '控制流'], date: '2025-03-12' },
+  { id: 3, title: '与 Vite 集成', description: 'solid-js 插件与 HMR...', image: 'https://picsum.photos/400/200?random=3', tags: ['Vite', '工程'], date: '2025-03-10' },
+]
+
+export function ${name}() {
+  const [cards] = createSignal<CardItem[]>(initial)
+  const [hoveredId, setHoveredId] = createSignal<number | null>(null)
+
+  return (
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
+      <For each={cards()}>
+        {(card) => (
+          <div
+            class={'group bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden cursor-pointer' + (hoveredId() === card.id ? ' scale-[1.02]' : '')}
+            onMouseEnter={() => setHoveredId(card.id)}
+            onMouseLeave={() => setHoveredId(null)}
+          >
+            <div class="h-48 overflow-hidden">
+              <img src={card.image} alt={card.title} class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+            </div>
+            <div class="p-5">
+              <div class="flex flex-wrap gap-2 mb-3">
+                <For each={card.tags}>{(tag) => <span class="px-2 py-1 text-xs font-medium bg-blue-50 text-blue-600 rounded-full">{tag}</span>}</For>
+              </div>
+              <h3 class="text-lg font-semibold text-gray-900 mb-2 line-clamp-1">{card.title}</h3>
+              <p class="text-gray-500 text-sm line-clamp-2 mb-3">{card.description}</p>
+              <div class="text-xs text-gray-400">{card.date}</div>
+            </div>
+          </div>
+        )}
+      </For>
+    </div>
+  )
+}
+`,
+  },
+]
+
 /**
  * 兜底模板 —— 当没有任何关键词匹配时使用
  * 生成一个最简单的可关闭卡片组件
@@ -388,24 +800,128 @@ const isVisible = ref(true)
 </template>`,
 }
 
+const defaultReactTemplate: ComponentTemplate = {
+  keywords: [],
+  framework: 'react',
+  generate: (name: string, _description: string) => `import { useState } from 'react'
+
+export function ${name}() {
+  const [isVisible, setVisible] = useState(true)
+  if (!isVisible) return null
+  return (
+    <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100 max-w-lg">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold text-gray-900">${name}</h2>
+        <button type="button" onClick={() => setVisible(false)} className="p-1 rounded-lg hover:bg-gray-100 transition">
+          <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </button>
+      </div>
+      <p className="text-gray-600">这是通过 AI Agent 自动生成的 React 组件。</p>
+      <p className="mt-2 text-sm text-gray-400">可按需修改内容与样式（Tailwind className）。</p>
+    </div>
+  )
+}
+`,
+}
+
+const defaultSvelteTemplate: ComponentTemplate = {
+  keywords: [],
+  framework: 'svelte',
+  generate: (name: string, _description: string) => `<script lang="ts">
+let isVisible = true
+const title = '${name}'
+</script>
+
+{#if isVisible}
+<div class="p-6 bg-white rounded-2xl shadow-sm border border-gray-100 max-w-lg">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-semibold text-gray-900">{title}</h2>
+    <button type="button" on:click={() => (isVisible = false)} class="p-1 rounded-lg hover:bg-gray-100 transition">
+      <svg class="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+      </svg>
+    </button>
+  </div>
+  <p class="text-gray-600">这是通过 AI Agent 自动生成的 Svelte 组件。</p>
+  <p class="mt-2 text-sm text-gray-400">可按需修改内容与样式。</p>
+</div>
+{/if}
+`,
+}
+
+const defaultSolidTemplate: ComponentTemplate = {
+  keywords: [],
+  framework: 'solid',
+  generate: (name: string, _description: string) => `/** Framework: SolidJS (solid-js) — 非 React。 */
+import { createSignal, Show } from 'solid-js'
+
+export function ${name}() {
+  const [isVisible, setVisible] = createSignal(true)
+  return (
+    <Show when={isVisible()}>
+      <div class="p-6 bg-white rounded-2xl shadow-sm border border-gray-100 max-w-lg">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-semibold text-gray-900">${name}</h2>
+          <button type="button" onClick={() => setVisible(false)} class="p-1 rounded-lg hover:bg-gray-100 transition">
+            <svg class="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+          </button>
+        </div>
+        <p class="text-gray-600">这是通过 AI Agent 自动生成的 Solid 组件。</p>
+        <p class="mt-2 text-sm text-gray-400">需在 Solid 项目中运行；样式为 Tailwind class。</p>
+      </div>
+    </Show>
+  )
+}
+`,
+}
+
+function defaultTemplateForFramework(framework: string): ComponentTemplate {
+  switch (framework) {
+    case 'react':
+      return defaultReactTemplate
+    case 'svelte':
+      return defaultSvelteTemplate
+    case 'solid':
+      return defaultSolidTemplate
+    case 'vue':
+    default:
+      return defaultVueTemplate
+  }
+}
+
 /**
  * 组件模板注册表 —— 管理所有模板，提供关键词匹配查询
  *
  * findBestMatch 算法：
  * 1. 过滤出目标框架的模板
  * 2. 对每个模板，统计描述中命中的关键词数（评分）
- * 3. 取评分最高的模板；如果全部为 0，返回 defaultVueTemplate
+ * 3. 取评分最高的模板；无匹配时返回 **当前 framework** 的兜底模板（避免 React 仍落 Vue）
  */
 class ComponentTemplateRegistry {
-  private templates: ComponentTemplate[] = [...vueTemplates]
+  private templates: ComponentTemplate[] = [
+    ...vueTemplates,
+    ...reactTemplates,
+    ...svelteTemplates,
+    ...solidTemplates,
+  ]
 
   findBestMatch(description: string, framework: string): ComponentTemplate {
+    const fwRaw = (framework || 'vue').toLowerCase()
+    const fw =
+      fwRaw === 'react' || fwRaw === 'svelte' || fwRaw === 'solid' || fwRaw === 'vue'
+        ? fwRaw
+        : 'vue'
+    const fallback = defaultTemplateForFramework(fw)
     const lowerDesc = description.toLowerCase()
     let bestMatch: ComponentTemplate | null = null
     let bestScore = 0
 
     for (const template of this.templates) {
-      if (template.framework !== framework) continue // 框架不匹配则跳过
+      if (template.framework !== fw) continue
       const score = template.keywords.filter((kw) => lowerDesc.includes(kw)).length
       if (score > bestScore) {
         bestScore = score
@@ -413,7 +929,7 @@ class ComponentTemplateRegistry {
       }
     }
 
-    return bestMatch || defaultVueTemplate // 无匹配时使用兜底模板
+    return bestMatch || fallback
   }
 }
 

@@ -43,15 +43,25 @@ watch(
 
 const current = computed(() => props.blocks[safeIndex.value])
 
-/** 与文档一致：vue → html；tsx → typescript；无一体 SFC 时用 html 近似 */
+/** 与文档一致：vue / svelte → html；tsx / solid → typescript */
 function mapLanguageToMonaco(raw: string | undefined): string {
   const r = (raw || 'plaintext').toLowerCase()
   if (r === 'vue') return 'html'
-  if (r === 'tsx') return 'typescript'
+  if (r === 'svelte') return 'html'
+  if (r === 'tsx' || r === 'solid') return 'typescript'
   if (r === 'jsx') return 'javascript'
   if (r === 'markdown') return 'plaintext'
   if (r === 'shell' || r === 'other') return 'plaintext'
   return r
+}
+
+/** 去掉 script/style 后尝试预览 Svelte 标记（仅布局级，指令不会在 iframe 中执行） */
+function extractSvelteMarkup(code: string): string | null {
+  let s = code
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, '')
+  s = s.replace(/<style[\s\S]*?<\/style>/gi, '')
+  const t = s.trim()
+  return t.length >= 8 ? t : null
 }
 
 const monacoLanguage = computed(() => mapLanguageToMonaco(current.value?.language))
@@ -62,6 +72,11 @@ function onEditorUpdate(code: string) {
 
 const previewHtml = computed(() => {
   const code = current.value?.code ?? ''
+  const lang = current.value?.language
+  if (lang === 'svelte') {
+    const sm = extractSvelteMarkup(code)
+    if (sm) return sm
+  }
   const templateMatch = code.match(/<template>([\s\S]*?)<\/template>/)
   if (templateMatch) {
     return templateMatch[1].trim()
@@ -69,10 +84,16 @@ const previewHtml = computed(() => {
   return `<div class="p-8 text-center text-gray-500">此类型的代码不支持实时预览</div>`
 })
 
-/** 当前选中文件是否可用「抽 template」在 iframe 内做单屏预览 */
+/** 当前选中文件是否可用 iframe 单屏预览（Vue SFC 抽 template；Svelte 去 script/style 后近似 HTML） */
 const canIframePreview = computed(() => {
+  const code = current.value?.code ?? ''
   const lang = current.value?.language
-  return lang === 'vue' && /<template>/.test(current.value?.code ?? '')
+  if (lang === 'vue' && /<template>/.test(code)) return true
+  if (lang === 'svelte') {
+    const sm = extractSvelteMarkup(code)
+    return Boolean(sm && /<\w+/.test(sm))
+  }
+  return false
 })
 
 const isMultiFile = computed(() => props.blocks.length > 1)
@@ -267,8 +288,11 @@ function shortName(path: string) {
               </li>
             </ul>
           </div>
-          <div v-else class="h-full flex items-center justify-center text-gray-300 text-center px-4">
-            请使用含 <code class="text-primary-300">&lt;template&gt;</code> 的 Vue SFC 以使用实时预览
+          <div v-else class="h-full flex items-center justify-center text-gray-300 text-center px-4 max-w-lg mx-auto">
+            <p>
+              实时预览适用于含 <code class="text-primary-300">&lt;template&gt;</code> 的 Vue SFC，或结构简单的
+              Svelte 单文件（去掉 script/style 后的静态片段）。React / Solid 的 TSX 无法在 iframe 中直接渲染，请查看「代码」或下载后本地运行。
+            </p>
           </div>
         </div>
       </div>

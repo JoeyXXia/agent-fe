@@ -16,7 +16,9 @@ function recordToCodeBlocks(files: Record<string, string>): CodeBlock[] {
     const ext = filename.split('.').pop() || ''
     const langMap: Record<string, string> = {
       vue: 'vue',
+      svelte: 'svelte',
       ts: 'typescript',
+      tsx: 'tsx',
       json: 'json',
       html: 'html',
       css: 'css',
@@ -43,33 +45,66 @@ const generateComponent: AgentTool = {
   parameters: [
     { name: 'description', type: 'string', description: '组件描述', required: true },
     { name: 'componentName', type: 'string', description: '组件名称', required: true },
-    { name: 'framework', type: 'string', description: '框架 (vue/react)', required: false },
+    { name: 'framework', type: 'string', description: '框架：vue / react / svelte / solid', required: false },
     { name: 'style', type: 'string', description: '样式方案', required: false },
   ],
   async execute(args): Promise<ToolResult> {
     const name = args.componentName as string
     const description = args.description as string
-    const framework = (args.framework as string) || 'vue'
+    const framework = ((args.framework as string) || 'vue').toLowerCase()
 
     /** 从模板库中基于关键词匹配找到最佳模板 */
     const template = componentTemplates.findBestMatch(description, framework)
     /** 调用模板的 generate 方法生成完整组件代码 */
     const code = template.generate(name, description)
 
+    let language: string
+    let filename: string
+    switch (framework) {
+      case 'react':
+        language = 'tsx'
+        filename = `${name}.tsx`
+        break
+      case 'svelte':
+        language = 'svelte'
+        filename = `${name}.svelte`
+        break
+      case 'solid':
+        language = 'solid'
+        filename = `${name}.tsx`
+        break
+      case 'vue':
+      default:
+        language = 'vue'
+        filename = `${name}.vue`
+        break
+    }
+
+    const fwLabel =
+      framework === 'vue'
+        ? 'Vue'
+        : framework === 'react'
+          ? 'React'
+          : framework === 'svelte'
+            ? 'Svelte'
+            : framework === 'solid'
+              ? 'Solid'
+              : framework
+
     /** 将代码封装为 CodeBlock 供 UI 预览面板使用 */
     const codeBlocks: CodeBlock[] = [
       {
         id: `cb_${Date.now()}`,
-        language: framework === 'vue' ? 'vue' : 'tsx',
+        language,
         code,
-        filename: framework === 'vue' ? `${name}.vue` : `${name}.tsx`,
+        filename,
       },
     ]
 
     return {
       success: true,
       data: { componentName: name, code, framework },
-      message: `成功生成 ${framework.toUpperCase()} 组件 \`${name}\``,
+      message: `成功生成 ${fwLabel} 组件 \`${filename}\``,
       codeBlocks,
     }
   },

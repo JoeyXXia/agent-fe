@@ -65,8 +65,8 @@ const INTENT_PATTERNS: Array<{
     extract: (input, ctx) => {
       // 正则匹配显式命名，如「叫 LoginForm」「名为 MyComp」
       const nameMatch = input.match(/(?:叫|名为|命名为|名字是)\s*["""]?(\w+)["""]?/)
-      // 正则匹配框架偏好（本地工具仅保证 Vue；React 仅用于远程/提示）
-      const frameworkMatch = input.match(/(vue|react)/i)
+      // 框架：与 componentTemplates / generateComponent 的 framework 一致（含 Solid）
+      const frameworkMatch = input.match(/(vue|react|svelte|solid)\b/i)
       return {
         componentName: nameMatch?.[1] || extractComponentName(input),
         framework: frameworkMatch?.[1]?.toLowerCase() || ctx.defaultFramework || 'vue',
@@ -145,12 +145,18 @@ function extractComponentName(input: string): string {
  *   - 命中 1 个关键词 → 50%
  *   - 命中 2 个及以上 → 100%
  */
+function normalizePlannerDefaultFramework(fw?: string): string {
+  const d = (fw || 'vue').toLowerCase()
+  if (d === 'react' || d === 'svelte' || d === 'solid') return d
+  return 'vue'
+}
+
 export function intentClassifier(
   input: string,
   opts?: { defaultFramework?: string }
 ): Intent {
   const lowerInput = input.toLowerCase()
-  const defaultFramework = opts?.defaultFramework === 'react' ? 'react' : 'vue'
+  const defaultFramework = normalizePlannerDefaultFramework(opts?.defaultFramework)
   // 默认值：general 意图，置信度 0.3（兜底）
   let bestMatch = { type: 'general', confidence: 0.3, params: {} as Record<string, string> }
 

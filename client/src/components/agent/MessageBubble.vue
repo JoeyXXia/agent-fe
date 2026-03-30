@@ -23,6 +23,13 @@ hljs.registerLanguage('javascript', javascript)
 hljs.registerLanguage('typescript', typescript)
 hljs.registerLanguage('css', css)
 
+function mapFenceLangForHljs(lang: string): string {
+  const l = (lang || 'plaintext').toLowerCase()
+  if (l === 'vue' || l === 'svelte') return 'xml'
+  if (l === 'solid' || l === 'tsx') return 'typescript'
+  return l
+}
+
 const props = defineProps<{
   message: Message
 }>()
@@ -51,7 +58,7 @@ const renderedContent = computed(() => {
       const language = lang || 'plaintext'
       let highlighted: string
       try {
-        highlighted = hljs.highlight(code.trim(), { language: language === 'vue' ? 'xml' : language }).value
+        highlighted = hljs.highlight(code.trim(), { language: mapFenceLangForHljs(language) }).value
       } catch {
         highlighted = escapeHtml(code.trim())
       }
