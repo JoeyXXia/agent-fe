@@ -10,6 +10,8 @@ import { Router, Response } from 'express'
 import { auth, AuthRequest } from '../middleware'
 import { run, get, all } from '../db'
 import { generateSummary, generateTags } from '../services/ai'
+import { ingestNote, deleteChunksForSource } from '../services/rag'
+import { isEmbeddingConfigured } from '../services/embeddings'
 
 const router = Router()
 // 子路由级中间件：本文件内所有请求必须先通过 JWT 校验
@@ -82,7 +84,15 @@ router.post('/', (req: AuthRequest, res: Response) => {
   )
 
   const note = get('SELECT * FROM notes WHERE id = ?', [lastID])
-  res.status(201).json(parseNote(note))
+  const parsed = parseNote(note)
+  if (isEmbeddingConfigured()) {
+    void ingestNote(req.userId!, {
+      id: parsed.id,
+      title: String(parsed.title),
+      content: String(parsed.content),
+    }).catch((e) => console.error('[RAG] ingest after create failed', e))
+  }
+  res.status(201).json(parsed)
 })
 
 /** PUT /:id — 部分字段更新；无有效字段时仍可返回当前行（200） */
@@ -102,6 +112,9 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
   if (summary !== undefined) { updates.push('summary = ?'); values.push(summary) }
   if (is_favorite !== undefined) { updates.push('is_favorite = ?'); values.push(is_favorite ? 1 : 0) }
 
+  const touchedBody =
+    content !== undefined || title !== undefined
+
   if (updates.length > 0) {
     updates.push("updated_at = datetime('now')")
     values.push(id, req.userId!)
@@ -110,16 +123,28 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
   }
 
   const updated = get('SELECT * FROM notes WHERE id = ?', [id])
-  res.json(parseNote(updated))
+  const parsed = parseNote(updated)
+  if (isEmbeddingConfigured() && touchedBody) {
+    void ingestNote(req.userId!, {
+      id: parsed.id,
+      title: String(parsed.title),
+      content: String(parsed.content),
+    }).catch((e) => console.error('[RAG] ingest after update failed', e))
+  }
+  res.json(parsed)
 })
 
 /** DELETE /:id — 删除；changes 为 0 时 404 */
 router.delete('/:id', (req: AuthRequest, res: Response) => {
-  const { changes } = run(
-    'DELETE FROM notes WHERE id = ? AND user_id = ?',
-    [Number(req.params.id), req.userId!]
-  )
-  if (!changes) { res.status(404).json({ error: '笔记不存在' }); return }
+  const nid = Number(req.params.id)
+  const uid = req.userId!
+  const existing = findNote(nid, uid)
+  if (!existing) {
+    res.status(404).json({ error: '笔记不存在' })
+    return
+  }
+  deleteChunksForSource(uid, 'note', nid)
+  run('DELETE FROM notes WHERE id = ? AND user_id = ?', [nid, uid])
   res.json({ ok: true })
 })
 

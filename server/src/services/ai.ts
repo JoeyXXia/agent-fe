@@ -345,10 +345,19 @@ async function callAnthropicAgentTurns(
  */
 export async function agentChatCompletion(
   messages: AgentChatMessage[],
-  options?: { preferences?: Partial<UserPreferences>; signal?: AbortSignal }
+  options?: {
+    preferences?: Partial<UserPreferences>
+    signal?: AbortSignal
+    /** RAG 检索片段（已含引用说明），拼在系统提示之后 */
+    ragContext?: string
+  }
 ): Promise<string> {
   const signal = options?.signal
-  const systemPrompt = buildAgentSystemPrompt(options?.preferences)
+  const ragExtra = options?.ragContext?.trim()
+    ? `\n\n${options.ragContext.trim()}`
+    : ''
+  const systemPrompt =
+    buildAgentSystemPrompt(options?.preferences) + ragExtra
 
   const conv = messages.filter(
     (m) => m.role === 'user' || m.role === 'assistant'

@@ -2,7 +2,9 @@
  * Agent 会话与消息路由
  *
  * 提供 Agent 对话的持久化 RESTful API：
- *   - POST   /chat               —— 服务端多轮 LLM（密钥仅在后端，与智能笔记共用 provider 链）
+ *   - POST   /chat               —— 服务端多轮 LLM（可先 RAG 检索笔记注入上下文）
+ *   - GET    /rag/status         —— RAG 是否可用与当前用户索引块数量
+ *   - POST   /rag/reindex        —— 重建当前用户全部笔记的向量索引
  *   - GET    /sessions           —— 获取当前用户的所有会话列表
  *   - POST   /sessions           —— 创建新会话
  *   - DELETE /sessions/:id       —— 删除指定会话
@@ -13,6 +15,12 @@ import { Router, Response } from 'express'
 import { auth, AuthRequest } from '../middleware'
 import { run, get, all } from '../db'
 import { agentChatCompletion, type AgentChatMessage } from '../services/ai'
+import { isEmbeddingConfigured } from '../services/embeddings'
+import {
+  retrieveForQuery,
+  reindexAllNotesForUser,
+  countChunksForUser,
+} from '../services/rag'
 
 const router = Router()
 
@@ -164,7 +172,8 @@ router.put('/preferences', (req: AuthRequest, res: Response) => {
 })
 
 /**
- * POST /chat —— 多轮对话，body: { messages: { role, content }[] }
+ * POST /chat —— 多轮对话，body: { messages, useRag? }
+ * `useRag` 默认 true；设为 false 可跳过检索。响应含 `rag: { used, citations? }`。
  * 与 `server/.env` 中 AI_* 配置一致；未配置密钥时返回 500
  */
 router.post('/chat', async (req: AuthRequest, res: Response) => {
@@ -195,12 +204,78 @@ router.post('/chat', async (req: AuthRequest, res: Response) => {
 
   try {
     const preferences = loadUserPreferences(req.userId!)
+    const useRag =
+      req.body?.useRag !== false &&
+      !/^1|true|yes$/i.test(String(process.env.RAG_DISABLED || ''))
+
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    const query = lastUser?.content ?? ''
+
+    let ragContext: string | undefined
+    const rag: {
+      used: boolean
+      citations?: { index: number; title: string; noteId: number }[]
+    } = { used: false }
+
+    if (useRag && isEmbeddingConfigured()) {
+      const retrieved = await retrieveForQuery(req.userId!, query)
+      if (retrieved) {
+        ragContext = retrieved.contextBlock
+        rag.used = true
+        rag.citations = retrieved.citations
+      }
+    }
+
     // 勿用 req.on('close') 去 abort：请求体读完后也会触发 close，易误杀上游导致误报 499
-    const content = await agentChatCompletion(messages, { preferences })
-    res.json({ content })
+    const content = await agentChatCompletion(messages, {
+      preferences,
+      ragContext,
+    })
+    res.json({ content, rag })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Agent LLM 调用失败'
     if (!res.headersSent) res.status(500).json({ error: msg })
+  }
+})
+
+/**
+ * GET /rag/status —— 当前用户 RAG 是否可用及已索引块数量
+ */
+router.get('/rag/status', (req: AuthRequest, res: Response) => {
+  const userId = req.userId!
+  res.json({
+    configured: isEmbeddingConfigured(),
+    chunkCount: countChunksForUser(userId),
+    disabled: /^1|true|yes$/i.test(process.env.RAG_DISABLED?.trim() || ''),
+  })
+})
+
+/**
+ * POST /rag/reindex —— 将当前用户全部笔记重建向量索引（管理/修复用）
+ */
+router.post('/rag/reindex', async (req: AuthRequest, res: Response) => {
+  if (!isEmbeddingConfigured()) {
+    res.status(400).json({
+      error: '未配置 Embedding（AI_EMBEDDING_API_KEY / AI_API_KEY）或已 RAG_DISABLED',
+    })
+    return
+  }
+  const userId = req.userId!
+  const notes = all(
+    'SELECT id, title, content FROM notes WHERE user_id = ?',
+    [userId]
+  ) as { id: number; title: string; content: string }[]
+  try {
+    const result = await reindexAllNotesForUser(userId, notes)
+    res.json({
+      ok: true,
+      notesTotal: notes.length,
+      ...result,
+      chunkCount: countChunksForUser(userId),
+    })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '重建索引失败'
+    res.status(500).json({ error: msg })
   }
 })
 

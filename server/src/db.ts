@@ -91,6 +91,23 @@ export async function initDB() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS rag_chunks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      source_type TEXT NOT NULL DEFAULT 'note',
+      source_id INTEGER NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      text TEXT NOT NULL,
+      embedding TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(user_id, source_type, source_id, chunk_index)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_rag_chunks_user ON rag_chunks(user_id);
+    CREATE INDEX IF NOT EXISTS idx_rag_chunks_source ON rag_chunks(user_id, source_type, source_id);
+
     CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id);
     CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON agent_sessions(user_id);
