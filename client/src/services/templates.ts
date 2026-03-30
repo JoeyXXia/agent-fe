@@ -452,8 +452,35 @@ const viteVueTsProject: ProjectTemplate = {
     'boilerplate',
     '工程',
     '项目模板',
+    'monorepo',
+    'workspace',
+    'pnpm',
+    'turbo',
+    'nx',
   ],
   generate: () => ({
+    'README.md': `# Vite + Vue + TypeScript
+
+脚手架模板（AI DevStudio \`generateProjectScaffold\`）。
+
+## 脚本
+
+| 命令 | 说明 |
+|------|------|
+| \`npm install\` | 安装依赖 |
+| \`npm run dev\` | 本地开发 |
+| \`npm run build\` | 生产构建 |
+| \`npm run preview\` | 预览构建产物 |
+
+## 目录
+
+- \`src/\` — 应用入口与页面
+- \`src/components/\` — 组件
+
+## Monorepo
+
+若需 **pnpm workspace**、**Turbo**、**Nx** 等多包结构，可在此单包基础上拆分 \`packages/*\`；当前模板为单应用起点。
+`,
     'package.json': `{
   "name": "vite-vue-ts-app",
   "private": true,

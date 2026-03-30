@@ -21,6 +21,7 @@ function recordToCodeBlocks(files: Record<string, string>): CodeBlock[] {
       html: 'html',
       css: 'css',
       scss: 'scss',
+      md: 'markdown',
     }
     return {
       id: `scaffold_${base}_${i++}`,

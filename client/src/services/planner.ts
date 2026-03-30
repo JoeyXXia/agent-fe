@@ -25,7 +25,8 @@ const INTENT_PATTERNS: Array<{
   extract?: (input: string, ctx: { defaultFramework: string }) => Record<string, string>
 }> = [
   {
-    type: 'generate_scaffold',
+    /** 初始化 / 多包仓库等「项目级」生成，区别于单文件组件 */
+    type: 'generate_project',
     keywords: [
       '脚手架',
       'scaffold',
@@ -39,6 +40,13 @@ const INTENT_PATTERNS: Array<{
       'init project',
       'vite',
       '模板工程',
+      'monorepo',
+      'workspace',
+      'pnpm',
+      'turbo',
+      'nx',
+      'lerna',
+      '仓库',
     ],
     extract: (input): Record<string, string> => {
       const m = input.match(/\b(vite-vue-ts|vite_vue_ts)\b/i)
@@ -172,10 +180,19 @@ export function planGenerator(
   userInput: string
 ): AgentPlan {
   const planTemplates: Record<string, () => PlanStep[]> = {
-    /** 项目脚手架：直接生成多文件模板 */
-    generate_scaffold: () => [
-      { id: 's1', description: '匹配项目模板并生成脚手架文件', toolName: 'generateProjectScaffold', status: 'pending' },
-      { id: 's2', description: '整理输出', status: 'pending' },
+    /**
+     * 项目脚手架：选型 → 多文件生成 → README（README 含于模板输出中的 README.md）
+     * 若仅需单步工具调用，可改为只保留带 generateProjectScaffold 的一步。
+     */
+    generate_project: () => [
+      { id: 's1', description: '选型：根据描述匹配模板与技术栈', status: 'pending' },
+      {
+        id: 's2',
+        description: '生成项目脚手架（多文件）',
+        toolName: 'generateProjectScaffold',
+        status: 'pending',
+      },
+      { id: 's3', description: '生成 README 与使用说明（见输出中的 README.md）', status: 'pending' },
     ],
     /** 组件生成：分析 → 生成代码 → 生成样式 → 组装 */
     generate_component: () => [
