@@ -1,57 +1,87 @@
 <script setup lang="ts">
 /**
  * 右侧代码预览面板
- * - 「代码」页：highlight.js（core + 按需语言）高亮后通过 v-html 输出
- * - 「预览」页：用 iframe + srcdoc 注入完整 HTML；sandbox 限制顶层导航与弹窗，仅允许脚本与同源（见 template 注释）
- * - defineEmits：向父组件通知关闭
+ * - 支持单文件或多文件（`blocks[]`）：多文件时顶栏增加文件 Tab 切换，仍用当前选中项驱动高亮与预览
+ * - 「代码」：highlight.js；「预览」：仅当选中文件为含 `<template>` 的 Vue SFC 时可用
+ * - 「下载 ZIP」：JSZip 打包全部 `filename` + 内容，便于本地解压后 npm install
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import type { CodeBlock } from '@/types'
+import JSZip from 'jszip'
 import hljs from 'highlight.js/lib/core'
 import xml from 'highlight.js/lib/languages/xml'
 import javascript from 'highlight.js/lib/languages/javascript'
 import typescript from 'highlight.js/lib/languages/typescript'
 import css from 'highlight.js/lib/languages/css'
+import json from 'highlight.js/lib/languages/json'
+import plaintext from 'highlight.js/lib/languages/plaintext'
 
 hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('plaintext', plaintext)
 hljs.registerLanguage('vue', xml)
 hljs.registerLanguage('html', xml)
 hljs.registerLanguage('javascript', javascript)
 hljs.registerLanguage('typescript', typescript)
 hljs.registerLanguage('css', css)
+hljs.registerLanguage('json', json)
 
 const props = defineProps<{
-  code: string
-  language: string
+  blocks: CodeBlock[]
+  fileIndex: number
 }>()
 
 const emit = defineEmits<{
+  'update:fileIndex': [index: number]
   close: []
 }>()
 
 const activeTab = ref<'code' | 'preview'>('code')
 const copied = ref(false)
+const zipLoading = ref(false)
 
-/**
- * 整段代码高亮：vue/tsx 等映射到 xml 以用 SFC/HTML 高亮规则；失败则退回转义纯文本
- */
+const safeIndex = computed(() => {
+  const len = props.blocks.length
+  if (!len) return 0
+  return Math.min(Math.max(0, props.fileIndex), len - 1)
+})
+
+watch(
+  () => props.blocks.length,
+  (len) => {
+    if (len && props.fileIndex >= len) emit('update:fileIndex', 0)
+  }
+)
+
+const current = computed(() => props.blocks[safeIndex.value])
+
 const highlightedCode = computed(() => {
+  const code = current.value?.code ?? ''
+  const rawLang = current.value?.language ?? 'plaintext'
   try {
-    const lang = props.language === 'vue' || props.language === 'tsx' ? 'xml' : props.language
-    return hljs.highlight(props.code, { language: lang }).value
+    const lang =
+      rawLang === 'vue' || rawLang === 'tsx'
+        ? 'xml'
+        : rawLang === 'markdown'
+          ? 'plaintext'
+          : rawLang
+    return hljs.highlight(code, { language: lang }).value
   } catch {
-    return escapeHtml(props.code)
+    return escapeHtml(code)
   }
 })
 
-/**
- * 从 SFC 中提取 <template> 内部 HTML，供 iframe 内嵌预览；无 template 时展示占位文案
- */
 const previewHtml = computed(() => {
-  const templateMatch = props.code.match(/<template>([\s\S]*?)<\/template>/)
+  const code = current.value?.code ?? ''
+  const templateMatch = code.match(/<template>([\s\S]*?)<\/template>/)
   if (templateMatch) {
     return templateMatch[1].trim()
   }
   return `<div class="p-8 text-center text-gray-500">此类型的代码不支持实时预览</div>`
+})
+
+const canIframePreview = computed(() => {
+  const lang = current.value?.language
+  return lang === 'vue' && /<template>/.test(current.value?.code ?? '')
 })
 
 function escapeHtml(text: string): string {
@@ -60,23 +90,78 @@ function escapeHtml(text: string): string {
 
 async function copyCode() {
   try {
-    await navigator.clipboard.writeText(props.code)
+    await navigator.clipboard.writeText(current.value?.code ?? '')
     copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
+    setTimeout(() => {
+      copied.value = false
+    }, 2000)
   } catch {
     // 剪贴板不可用等情况静默失败
   }
 }
 
-const lineCount = computed(() => props.code.split('\n').length)
+async function downloadZip() {
+  if (!props.blocks.length) return
+  zipLoading.value = true
+  try {
+    const zip = new JSZip()
+    props.blocks.forEach((b, i) => {
+      const name = b.filename || `file-${i}.txt`
+      zip.file(name, b.code)
+    })
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'project-scaffold.zip'
+    a.click()
+    URL.revokeObjectURL(url)
+  } finally {
+    zipLoading.value = false
+  }
+}
+
+function selectFile(i: number) {
+  emit('update:fileIndex', i)
+  activeTab.value = 'code'
+}
+
+const lineCount = computed(() => (current.value?.code ?? '').split('\n').length)
+
+function shortName(path: string) {
+  if (path.length <= 28) return path
+  return '…' + path.slice(-26)
+}
 </script>
 
 <template>
   <div class="h-full flex flex-col glass-panel">
-    <!-- 顶栏：Tab、语言与行数、复制、关闭 -->
-    <div class="flex items-center justify-between px-4 py-3 border-b border-dark-700/50">
-      <div class="flex items-center gap-3">
-        <div class="flex gap-1">
+    <!-- 多文件：横向 Tab -->
+    <div
+      v-if="blocks.length > 1"
+      class="flex-shrink-0 px-2 py-2 border-b border-dark-700/50 overflow-x-auto flex gap-1"
+    >
+      <button
+        v-for="(b, i) in blocks"
+        :key="b.id"
+        type="button"
+        class="flex-shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-mono max-w-[200px] truncate transition"
+        :class="
+          i === safeIndex
+            ? 'bg-primary-600/40 text-white border border-primary-500/50'
+            : 'text-dark-400 hover:text-white hover:bg-dark-700/80 border border-transparent'
+        "
+        :title="b.filename || b.language"
+        @click="selectFile(i)"
+      >
+        {{ b.filename ? shortName(b.filename) : b.language }}
+      </button>
+    </div>
+
+    <!-- 顶栏：代码/预览 Tab、语言与行数、复制、下载 ZIP、关闭 -->
+    <div class="flex items-center justify-between px-4 py-3 border-b border-dark-700/50 flex-shrink-0 gap-2">
+      <div class="flex items-center gap-3 min-w-0 flex-1">
+        <div class="flex gap-1 flex-shrink-0">
           <button
             class="px-3 py-1.5 rounded-lg text-xs font-medium transition"
             :class="activeTab === 'code' ? 'bg-dark-700 text-white' : 'text-dark-400 hover:text-white'"
@@ -87,16 +172,30 @@ const lineCount = computed(() => props.code.split('\n').length)
           <button
             class="px-3 py-1.5 rounded-lg text-xs font-medium transition"
             :class="activeTab === 'preview' ? 'bg-dark-700 text-white' : 'text-dark-400 hover:text-white'"
-            @click="activeTab = 'preview'"
+            :disabled="!canIframePreview"
+            @click="canIframePreview && (activeTab = 'preview')"
           >
             预览
           </button>
         </div>
-        <span class="text-xs text-dark-500 font-mono">{{ language }} · {{ lineCount }} 行</span>
+        <span class="text-xs text-dark-500 font-mono truncate" :title="current?.filename">
+          {{ current?.filename || current?.language }} · {{ lineCount }} 行
+          <span v-if="blocks.length > 1" class="text-dark-600">（{{ safeIndex + 1 }}/{{ blocks.length }}）</span>
+        </span>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-shrink-0">
         <button
+          v-if="blocks.length >= 1"
+          type="button"
+          :disabled="zipLoading"
+          class="px-3 py-1.5 rounded-lg text-xs text-dark-400 hover:text-white hover:bg-dark-700 transition disabled:opacity-50"
+          @click="downloadZip"
+        >
+          {{ zipLoading ? '打包中…' : '下载 ZIP' }}
+        </button>
+        <button
+          type="button"
           @click="copyCode"
           class="px-3 py-1.5 rounded-lg text-xs text-dark-400 hover:text-white hover:bg-dark-700 transition flex items-center gap-1.5"
         >
@@ -108,7 +207,7 @@ const lineCount = computed(() => props.code.split('\n').length)
           </svg>
           {{ copied ? '已复制' : '复制' }}
         </button>
-        <button @click="emit('close')" class="p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 transition">
+        <button type="button" @click="emit('close')" class="p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 transition">
           <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
           </svg>
@@ -116,20 +215,14 @@ const lineCount = computed(() => props.code.split('\n').length)
       </div>
     </div>
 
-    <div class="flex-1 overflow-hidden">
-      <!-- 代码视图：高亮结果为可信 HTML 片段（来自 hljs），由 v-html 绑定 -->
+    <div class="flex-1 overflow-hidden min-h-0">
       <div v-if="activeTab === 'code'" class="h-full overflow-auto p-4">
         <pre class="text-sm leading-relaxed font-mono"><code class="hljs" v-html="highlightedCode"></code></pre>
       </div>
 
-      <!--
-        预览视图：iframe sandbox
-        - allow-scripts：Tailwind CDN 等内联脚本需执行
-        - allow-same-origin：部分浏览器下脚本与空白文档模型行为；仍应警惕与父页面同域时的风险，此处内容为生成的演示 HTML
-        - 未开放 allow-top-navigation 等，降低钓鱼与顶层跳转风险
-      -->
       <div v-else class="h-full">
         <iframe
+          v-if="canIframePreview"
           :srcdoc="`<!DOCTYPE html>
 <html>
 <head>
@@ -144,6 +237,9 @@ const lineCount = computed(() => props.code.split('\n').length)
           class="w-full h-full border-0 bg-white"
           sandbox="allow-scripts allow-same-origin"
         ></iframe>
+        <div v-else class="h-full flex items-center justify-center text-dark-500 text-sm px-4 text-center">
+          请切换到「.vue」且含 &lt;template&gt; 的文件以使用实时预览
+        </div>
       </div>
     </div>
   </div>

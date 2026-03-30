@@ -9,7 +9,7 @@
  * 用户消息通常不含 HTML；若需严格 CSP，可改为仅信任白名单标签或使用 sanitizer。
  */
 import { computed } from 'vue'
-import type { Message } from '@/types'
+import type { Message, CodeBlock } from '@/types'
 import hljs from 'highlight.js/lib/core'
 import xml from 'highlight.js/lib/languages/xml'
 import javascript from 'highlight.js/lib/languages/javascript'
@@ -27,9 +27,10 @@ const props = defineProps<{
   message: Message
 }>()
 
-/** 声明向父组件抛出的事件：预览代码 + 语言标识 */
+/** 声明向父组件抛出的事件：单段预览 / 多文件预览 */
 const emit = defineEmits<{
   previewCode: [code: string, language: string]
+  previewBlocks: [blocks: CodeBlock[]]
 }>()
 
 const isUser = computed(() => props.message.role === 'user')
@@ -178,6 +179,24 @@ function handleClick(e: MouseEvent) {
 
       <!-- 正文：HTML 由 computed 生成；见 script 顶部的安全说明 -->
       <div v-html="renderedContent"></div>
+
+      <!-- 结构化多文件（如脚手架）：与 Markdown 内嵌代码块互补 -->
+      <div
+        v-if="!isUser && message.codeBlocks && message.codeBlocks.length > 0"
+        class="mt-3 pt-3 border-t border-dark-700/50"
+      >
+        <button
+          type="button"
+          class="text-xs text-primary-400 hover:text-primary-300 font-medium"
+          @click.stop="emit('previewBlocks', message.codeBlocks!)"
+        >
+          {{
+            message.codeBlocks.length > 1
+              ? `在右侧打开预览（${message.codeBlocks.length} 个文件）`
+              : '在右侧打开预览'
+          }}
+        </button>
+      </div>
     </div>
   </div>
 </template>

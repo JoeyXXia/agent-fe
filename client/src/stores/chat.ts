@@ -14,7 +14,14 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Message, Conversation, ThinkingStep, ToolCallRecord, UserPreferences } from '@/types'
+import type {
+  Message,
+  Conversation,
+  ThinkingStep,
+  ToolCallRecord,
+  UserPreferences,
+  CodeBlock,
+} from '@/types'
 import api from '@/api'
 import { agentCore, isAbortLike } from '@/services/agent'
 
@@ -32,8 +39,9 @@ export const useChatStore = defineStore('chat', () => {
   // 当前轮次工具调用记录（含进行中/完成状态），id 相同则更新同一条
   const currentToolCalls = ref<ToolCallRecord[]>([])
   const showPreview = ref(false)
-  const previewCode = ref('')
-  const previewLanguage = ref('vue')
+  /** 右侧预览：多文件时为多条；单文件时长度为 1 */
+  const previewBlocks = ref<CodeBlock[]>([])
+  const previewFileIndex = ref(0)
   /** 终止当前一轮 Agent 请求（远程 / 本地 ReAct / 流式输出） */
   const agentAbortController = ref<AbortController | null>(null)
   /** 短期记忆窗口：只保留最近 N 条消息给 LLM / 本地 ReAct */
@@ -257,7 +265,8 @@ export const useChatStore = defineStore('chat', () => {
   function setActiveConversation(id: string) {
     activeConversationId.value = id
     showPreview.value = false
-    previewCode.value = ''
+    previewBlocks.value = []
+    previewFileIndex.value = 0
     const conv = conversations.value.find((c) => c.id === id)
     if (conv) void ensureMessagesLoaded(conv)
   }
@@ -375,11 +384,9 @@ export const useChatStore = defineStore('chat', () => {
       response.id = String(persistedAssistant.id)
       response.timestamp = persistedAssistant.createdAt
 
-      // 若回复中含代码块，默认展示第一段并打开预览面板
+      // 若回复中含代码块，打开预览（多文件时右侧可切换 / 打包下载）
       if (response.codeBlocks && response.codeBlocks.length > 0) {
-        const block = response.codeBlocks[0]
-        previewCode.value = block.code
-        previewLanguage.value = block.language
+        setPreviewBlocks(response.codeBlocks)
         showPreview.value = preferences.value.defaultExpandCodePreview
       }
     } catch (error) {
@@ -432,16 +439,38 @@ export const useChatStore = defineStore('chat', () => {
     agentAbortController.value?.abort()
   }
 
-  /** 手动打开预览并指定代码与高亮语言 */
-  function setPreview(code: string, language: string) {
-    previewCode.value = code
-    previewLanguage.value = language
+  /** 手动打开预览：单段代码（如从 Markdown 气泡「预览」按钮） */
+  function setPreview(code: string, language: string, filename?: string) {
+    previewBlocks.value = [
+      {
+        id: `pv_${Date.now()}`,
+        code,
+        language,
+        filename,
+      },
+    ]
+    previewFileIndex.value = 0
     showPreview.value = true
   }
 
-  /** 仅关闭预览面板，不清空代码（便于再次打开时仍保留内容，视产品需求而定） */
+  /** 多文件预览（脚手架等） */
+  function setPreviewBlocks(blocks: CodeBlock[]) {
+    if (!blocks.length) return
+    previewBlocks.value = blocks
+    previewFileIndex.value = 0
+    showPreview.value = true
+  }
+
+  /** 仅关闭预览面板并清空，避免切换会话后误显旧文件 */
   function closePreview() {
     showPreview.value = false
+    previewBlocks.value = []
+    previewFileIndex.value = 0
+  }
+
+  function setPreviewFileIndex(i: number) {
+    const max = Math.max(0, previewBlocks.value.length - 1)
+    previewFileIndex.value = Math.min(Math.max(0, i), max)
   }
 
   return {
@@ -455,14 +484,16 @@ export const useChatStore = defineStore('chat', () => {
     currentThinking,
     currentToolCalls,
     showPreview,
-    previewCode,
-    previewLanguage,
+    previewBlocks,
+    previewFileIndex,
+    setPreviewFileIndex,
     createConversation,
     setActiveConversation,
     deleteConversation,
     sendMessage,
     cancelAgentRequest,
     setPreview,
+    setPreviewBlocks,
     closePreview,
     syncBackendSessions,
     loadBackendPreferences,

@@ -128,10 +128,14 @@ const showWelcome = computed(
           leave-from-class="w-[45%] opacity-100"
           leave-to-class="w-0 opacity-0"
         >
-          <div v-if="chatStore.showPreview" class="w-[45%] flex-shrink-0 border-l border-dark-700/50">
+          <div
+            v-if="chatStore.showPreview && chatStore.previewBlocks.length > 0"
+            class="w-[45%] flex-shrink-0 border-l border-dark-700/50 min-w-0"
+          >
             <CodePreview
-              :code="chatStore.previewCode"
-              :language="chatStore.previewLanguage"
+              :blocks="chatStore.previewBlocks"
+              :file-index="chatStore.previewFileIndex"
+              @update:file-index="chatStore.setPreviewFileIndex"
               @close="chatStore.closePreview()"
             />
           </div>

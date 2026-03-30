@@ -2,7 +2,7 @@
 /**
  * 聊天主面板
  * - 展示当前会话标题、消息列表（或空态 + 快捷建议）、底部输入区
- * - 子组件 MessageBubble 通过 emit('previewCode') 上抛，本组件用 @preview-code 监听并转调 chatStore.setPreview
+ * - MessageBubble：`previewCode` → setPreview（单段）；`previewBlocks` → setPreviewBlocks（多文件脚手架）
  * - 使用 watch 监听消息数量、流式内容、思考步骤长度，配合 nextTick 滚动到底部
  */
 import { ref, nextTick, watch } from 'vue'
@@ -129,6 +129,7 @@ watch(() => chatStore.currentThinking.length, scrollToBottom)
           :key="msg.id"
           :message="msg"
           @preview-code="handlePreviewCode"
+          @preview-blocks="chatStore.setPreviewBlocks"
         />
 
         <!-- Agent 处理中：展示实时思考与工具调用 -->
