@@ -6,6 +6,7 @@
  * - 生产构建基于 Rollup，支持 Tree Shaking
  * - 内置 HMR（热模块替换），修改后毫秒级生效
  */
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'       // Vue 3 SFC 编译插件
 import { resolve } from 'path'
@@ -13,6 +14,11 @@ import { resolve } from 'path'
 export default defineConfig({
   /** 插件列表：@vitejs/plugin-vue 负责编译 .vue 单文件组件 */
   plugins: [vue()],
+
+  test: {
+    environment: 'happy-dom',
+    include: ['src/**/*.test.ts'],
+  },
 
   resolve: {
     /**

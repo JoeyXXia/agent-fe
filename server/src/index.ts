@@ -20,7 +20,7 @@ import agentRoutes from './routes/agent'
 import mcpRoutes from './routes/mcp'
 import { attachYjsWebSocket } from './collab/yjsWs'
 
-const app = express()
+export const app = express()
 const PORT = process.env.PORT || 3001
 
 // CORS：仅允许前端来源（默认 Vite 开发端口），浏览器跨域请求需匹配此处 origin
@@ -54,4 +54,7 @@ async function main() {
   })
 }
 
-main().catch(console.error)
+// 测试环境由 Vitest 注入 VITEST，避免启动监听与初始化 DB（健康检查路由不依赖 DB）
+if (process.env['VITEST'] !== 'true') {
+  main().catch(console.error)
+}
