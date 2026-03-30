@@ -18,6 +18,7 @@ import authRoutes from './routes/auth'
 import noteRoutes from './routes/notes'
 import agentRoutes from './routes/agent'
 import mcpRoutes from './routes/mcp'
+import pluginRoutes from './routes/plugins'
 import { attachYjsWebSocket } from './collab/yjsWs'
 
 export const app = express()
@@ -38,6 +39,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api/notes', noteRoutes)
 app.use('/api/agent', agentRoutes)
 app.use('/api/mcp', mcpRoutes)
+app.use('/api/plugins', pluginRoutes)
 
 // 全局错误处理：必须注册在路由之后；Express 通过「四参数」识别错误处理中间件
 app.use(errorHandler)

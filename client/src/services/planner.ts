@@ -151,16 +151,29 @@ function normalizePlannerDefaultFramework(fw?: string): string {
   return 'vue'
 }
 
+/** 已启用插件注入的关键词与意图类型（与清单 intent 对齐） */
+export type PluginIntentPattern = {
+  type: string
+  keywords: string[]
+  extract?: (input: string, ctx: { defaultFramework: string }) => Record<string, string>
+}
+
 export function intentClassifier(
   input: string,
-  opts?: { defaultFramework?: string }
+  opts?: { defaultFramework?: string; pluginPatterns?: PluginIntentPattern[] }
 ): Intent {
   const lowerInput = input.toLowerCase()
   const defaultFramework = normalizePlannerDefaultFramework(opts?.defaultFramework)
   // 默认值：general 意图，置信度 0.3（兜底）
   let bestMatch = { type: 'general', confidence: 0.3, params: {} as Record<string, string> }
 
-  for (const pattern of INTENT_PATTERNS) {
+  const mergedPatterns: Array<{
+    type: string
+    keywords: string[]
+    extract?: (input: string, ctx: { defaultFramework: string }) => Record<string, string>
+  }> = [...INTENT_PATTERNS, ...(opts?.pluginPatterns || [])]
+
+  for (const pattern of mergedPatterns) {
     /** 统计输入文本中命中的关键词数量 */
     const matchCount = pattern.keywords.filter((kw) => lowerInput.includes(kw)).length
     const confidence = Math.min(matchCount / 2, 1)
@@ -187,7 +200,8 @@ export function intentClassifier(
  */
 export function planGenerator(
   intent: Intent,
-  userInput: string
+  userInput: string,
+  extraPlanTemplates?: Record<string, () => PlanStep[]>
 ): AgentPlan {
   const planTemplates: Record<string, () => PlanStep[]> = {
     /**
@@ -237,6 +251,7 @@ export function planGenerator(
       { id: 's1', description: '理解问题', status: 'pending' },
       { id: 's2', description: '生成回复', status: 'pending' },
     ],
+    ...extraPlanTemplates,
   }
 
   const steps = (planTemplates[intent.type] || planTemplates.general)()

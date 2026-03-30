@@ -9,6 +9,7 @@ import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '@/stores/chat'
 import { useAuthStore } from '@/stores/auth'
+import { usePluginsStore } from '@/stores/plugins'
 import Sidebar from '../components/agent/Sidebar.vue'
 import ChatPanel from '../components/agent/ChatPanel.vue'
 import CodePreview from '../components/agent/CodePreview.vue'
@@ -16,11 +17,13 @@ import WelcomeOverlay from '../components/agent/WelcomeOverlay.vue'
 
 const chatStore = useChatStore()
 const auth = useAuthStore()
+const pluginsStore = usePluginsStore()
 const router = useRouter()
 
 onMounted(() => {
   void chatStore.syncBackendSessions()
   void chatStore.loadBackendPreferences()
+  void pluginsStore.hydrateForUser()
 })
 
 /** 是否显示欢迎首屏：无激活会话且列表为空 */
@@ -58,6 +61,12 @@ const showWelcome = computed(
             Agent
           </button>
         </div>
+        <button
+          @click="router.push('/plugins')"
+          class="w-full mb-3 px-3 py-1.5 text-xs text-dark-400 hover:text-primary-300 border border-dark-600 rounded-lg transition"
+        >
+          插件市场
+        </button>
         <button @click="chatStore.createConversation()" class="w-full btn-primary flex items-center justify-center gap-2 text-sm">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />

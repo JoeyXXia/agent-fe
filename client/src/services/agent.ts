@@ -19,8 +19,8 @@ import type {
 } from '@/types'
 import axios from 'axios'
 import api from '@/api'
-import { toolRegistry } from './tools'
-import { intentClassifier, planGenerator } from './planner'
+import { baseToolRegistry } from './tools'
+import { intentClassifier, planGenerator, type PluginIntentPattern } from './planner'
 
 /** 传入服务端 LLM 时的会话消息（含当前用户消息） */
 export type AgentConversationMessage = {
@@ -34,6 +34,11 @@ export type AgentRunOptions = {
   abortSignal?: AbortSignal
   /** 用户长期偏好（用于本地 fallback 的默认框架等） */
   userPreferences?: UserPreferences
+  /** 已启用插件：意图关键词与计划模板（与 buildPlannerExtrasFromPlugins 输出对齐） */
+  pluginPlanner?: {
+    pluginPatterns: PluginIntentPattern[]
+    planTemplates: Record<string, () => PlanStep[]>
+  }
 }
 
 export function isAbortLike(e: unknown): boolean {
@@ -75,12 +80,19 @@ export class AgentCore {
   private conversationContext: Message[] = []
 
   constructor() {
-    this.registerTools()
+    this.applyToolList(baseToolRegistry)
   }
 
-  /** 将 toolRegistry 数组中的工具逐个注册到 Map 中 */
-  private registerTools() {
-    for (const tool of toolRegistry) {
+  /**
+   * 用完整列表替换当前 Map（内置 + 已启用插件）
+   */
+  syncTools(allTools: AgentTool[]) {
+    this.applyToolList(allTools)
+  }
+
+  private applyToolList(list: AgentTool[]) {
+    this.tools.clear()
+    for (const tool of list) {
       this.tools.set(tool.name, tool)
     }
   }
@@ -244,10 +256,14 @@ export class AgentCore {
     /** 调用意图分类器：关键词匹配 → 返回意图类型 + 置信度 + 提取的参数 */
     // 优先使用「当前用户输入」判定意图，降低历史上下文导致的误判风险；
     // 只有当置信度较低或落到兜底 general 时，才用上下文重新推断。
-    const currentIntent = intentClassifier(userInput, { defaultFramework: localDefaultFramework })
+    const plannerOpts = {
+      defaultFramework: localDefaultFramework,
+      pluginPatterns: options?.pluginPlanner?.pluginPatterns,
+    }
+    const currentIntent = intentClassifier(userInput, plannerOpts)
     const intent =
       currentIntent.type === 'general' || currentIntent.confidence < 0.6
-        ? intentClassifier(contextAwareInput, { defaultFramework: localDefaultFramework })
+        ? intentClassifier(contextAwareInput, plannerOpts)
         : currentIntent
 
     const reasoningStep: ThinkingStep = {
@@ -262,7 +278,11 @@ export class AgentCore {
     // ━━━━━━━━━━ Phase 2: 计划生成（Plan Generation）━━━━━━━━━━
     await sleep(300, sig)
     /** 根据意图类型查找对应的计划模板，生成有序的执行步骤 */
-    const plan = planGenerator(intent, userInput)
+    const plan = planGenerator(
+      intent,
+      userInput,
+      options?.pluginPlanner?.planTemplates
+    )
 
     const planStep: ThinkingStep = {
       id: uid('think'),
@@ -446,7 +466,11 @@ export class AgentCore {
       debug: '\n\n如果问题仍然存在，请提供更多上下文信息。',
       general: '\n\n还有什么我可以帮你的吗？',
     }
-    parts.push(summaryMap[intent.type] || summaryMap.general)
+    const pluginHint =
+      intent.type.startsWith('plugin_')
+        ? '\n\n可在「插件市场」中启用或关闭社区工具。'
+        : ''
+    parts.push(summaryMap[intent.type] || summaryMap.general + pluginHint)
 
     return parts.join('\n')
   }

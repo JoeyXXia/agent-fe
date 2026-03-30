@@ -38,6 +38,16 @@ const router = createRouter({
       component: () => import('../pages/AgentWorkbench.vue'),
       meta: { auth: true },
     },
+    {
+      path: '/plugins',
+      component: () => import('../pages/PluginMarketplace.vue'),
+      meta: { auth: true },
+    },
+    {
+      path: '/plugins/:id',
+      component: () => import('../pages/PluginDetail.vue'),
+      meta: { auth: true },
+    },
   ],
 })
 

@@ -24,6 +24,7 @@ import type {
 } from '@/types'
 import api from '@/api'
 import { agentCore, isAbortLike } from '@/services/agent'
+import { usePluginsStore } from '@/stores/plugins'
 
 export const useChatStore = defineStore('chat', () => {
   // 所有会话保存在内存；刷新页面会丢失（若需持久化可另行对接 localStorage 或后端）
@@ -344,6 +345,7 @@ export const useChatStore = defineStore('chat', () => {
       const shortTermMessages = activeConversation.value!.messages.slice(
         -SHORT_TERM_MESSAGE_LIMIT
       )
+      const pluginPlanner = usePluginsStore().getPlannerExtras()
       const response = await agentCore.run(
         content,
         // 思考回调：每次追加新步骤，使用展开新数组以触发响应式更新（依赖替换引用）
@@ -370,6 +372,7 @@ export const useChatStore = defineStore('chat', () => {
           })),
           abortSignal: ac.signal,
           userPreferences: preferences.value,
+          pluginPlanner,
         }
       )
 

@@ -124,6 +124,27 @@ export async function initDB() {
       FOREIGN KEY (shared_user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_note_shares_shared_user ON note_shares(shared_user_id);
+
+    CREATE TABLE IF NOT EXISTS user_enabled_plugins (
+      user_id INTEGER NOT NULL,
+      plugin_id TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, plugin_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_enabled_plugins_user ON user_enabled_plugins(user_id);
+
+    CREATE TABLE IF NOT EXISTS plugin_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      plugin_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      args_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_plugin_audit_user ON plugin_audit_log(user_id);
+    CREATE INDEX IF NOT EXISTS idx_plugin_audit_created ON plugin_audit_log(created_at);
   `)
 
   migrateNotesYjsColumn()

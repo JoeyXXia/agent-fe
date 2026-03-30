@@ -4,7 +4,7 @@
  * 设计模式：策略模式 —— 每个工具实现统一的 AgentTool 接口（name + execute）
  *          注册表模式 —— 通过名称动态查找工具，支持运行时扩展
  *
- * 扩展方式：实现 AgentTool 接口 → 添加到 toolRegistry 数组 → 在 planTemplates 中配置调用时机
+ * 扩展方式：内置工具加入 baseToolRegistry；社区插件由插件市场启用后合并进 AgentCore
  */
 import type { AgentTool, ToolResult, CodeBlock } from '@/types'
 import { componentTemplates, projectTemplates } from './templates'
@@ -332,13 +332,15 @@ function generateAnalysis(desc: string): string {
 }
 
 /**
- * 工具注册表 —— 导出给 AgentCore 使用
- * AgentCore 构造时遍历此数组，存入内部 Map<name, tool>
+ * 内置工具 —— 插件市场启用项在此基础上合并（见 AgentCore.syncTools）
  */
-export const toolRegistry: AgentTool[] = [
+export const baseToolRegistry: AgentTool[] = [
   generateComponent,
   generateProjectScaffold,
   generateStyles,
   analyzeCode,
   refactorCode,
 ]
+
+/** @deprecated 使用 baseToolRegistry；保留别名避免外部引用断裂 */
+export const toolRegistry = baseToolRegistry

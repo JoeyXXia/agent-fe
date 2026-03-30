@@ -135,3 +135,31 @@ export interface AgentConfig {
  * 使用类型别名（type alias）为函数类型命名，便于在多处引用。
  */
 export type StreamCallback = (chunk: string) => void
+
+/** 插件清单 runtime（与 PLUGIN-MARKETPLACE 文档对齐） */
+export type PluginRuntime = 'browser' | 'server' | 'mcp'
+
+/** 市场条目：与服务端 catalog.json 字段一致 */
+export interface MarketplacePlugin {
+  id: string
+  version: string
+  displayName: string
+  description: string
+  runtime: PluginRuntime
+  permissions: string[]
+  author?: string
+  category?: string
+  readme?: string
+  entry?: string
+  compat?: { aiDevStudio?: string }
+  tool: {
+    name: string
+    description: string
+    icon: string
+    parameters: ToolParameter[]
+  }
+  intent: {
+    type: string
+    keywords: string[]
+  }
+}
