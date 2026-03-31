@@ -24,8 +24,25 @@ import { attachYjsWebSocket } from './collab/yjsWs'
 export const app = express()
 const PORT = process.env.PORT || 3001
 
-// CORS：仅允许前端来源（默认 Vite 开发端口），浏览器跨域请求需匹配此处 origin
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }))
+function parseCorsOrigins(): string[] {
+  const raw = process.env['CLIENT_URLS'] || process.env['CLIENT_URL'] || 'http://localhost:5173'
+  return raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+}
+
+const corsOrigins = parseCorsOrigins()
+// CORS：支持单域名 CLIENT_URL 或多域名 CLIENT_URLS（逗号分隔）
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true)
+      if (corsOrigins.includes(origin)) return callback(null, true)
+      return callback(new Error(`CORS blocked origin: ${origin}`))
+    },
+  })
+)
 // body-parser：将 JSON 请求体解析为 req.body；limit 防止过大 payload 占用内存
 app.use(express.json({ limit: '1mb' }))
 
