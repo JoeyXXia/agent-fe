@@ -5,19 +5,41 @@
 import http from 'http'
 import { WebSocketServer } from 'ws'
 import * as Y from 'yjs'
-import { setupWSConnection, setPersistence, type WSSharedDoc } from '@y/websocket-server/utils'
 import { get, run } from '../db'
 import { verifyToken } from '../middleware'
 
 const ROOM = /^note:(\d+)$/
 
 let configured = false
+type WSSharedDocLike = Y.Doc & { getText: (name?: string) => Y.Text }
+type YwsUtils = {
+  setPersistence: (persistence: {
+    bindState: (docname: string, ydoc: WSSharedDocLike) => void
+    writeState: (docname: string, ydoc: WSSharedDocLike) => Promise<unknown>
+    provider: unknown
+  } | null) => void
+  setupWSConnection: (
+    conn: import('ws').WebSocket,
+    req: import('http').IncomingMessage,
+    opts?: { docName?: string; gc?: boolean }
+  ) => void
+}
+let ywsUtils: YwsUtils | null = null
 
-function ensurePersistence() {
+async function ensureYwsUtils(): Promise<YwsUtils> {
+  if (ywsUtils) return ywsUtils
+  // Force ESM path via dynamic import to avoid CJS/ESM mismatch on Render.
+  const mod = await import('@y/websocket-server/utils')
+  ywsUtils = mod as unknown as YwsUtils
+  return ywsUtils
+}
+
+async function ensurePersistence() {
   if (configured) return
+  const { setPersistence } = await ensureYwsUtils()
   configured = true
   setPersistence({
-    bindState: (docname: string, ydoc: WSSharedDoc) => {
+    bindState: (docname: string, ydoc: WSSharedDocLike) => {
       const m = ROOM.exec(docname)
       if (!m) return
       const nid = Number(m[1])
@@ -33,7 +55,7 @@ function ensurePersistence() {
         if (t.length) ydoc.getText('monaco').insert(0, t)
       }
     },
-    writeState: async (docname: string, ydoc: WSSharedDoc) => {
+    writeState: async (docname: string, ydoc: WSSharedDocLike) => {
       const m = ROOM.exec(docname)
       if (!m) return
       const nid = Number(m[1])
@@ -60,11 +82,16 @@ function canAccessNoteRoom(noteId: number, userId: number): boolean {
   return row.share_role === 'read' || row.share_role === 'write'
 }
 
-export function attachYjsWebSocket(server: http.Server) {
-  ensurePersistence()
+export async function attachYjsWebSocket(server: http.Server) {
+  await ensurePersistence()
   const wss = new WebSocketServer({ noServer: true })
 
   server.on('upgrade', (request, socket, head) => {
+    if (!ywsUtils) {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n')
+      socket.destroy()
+      return
+    }
     const host = request.headers.host || 'localhost'
     let u: URL
     try {
@@ -97,7 +124,7 @@ export function attachYjsWebSocket(server: http.Server) {
     }
 
     wss.handleUpgrade(request, socket, head, (ws) => {
-      setupWSConnection(ws, request, { docName, gc: true })
+      ywsUtils!.setupWSConnection(ws, request, { docName, gc: true })
     })
   })
 }

@@ -334,6 +334,13 @@ AI_MODEL=gpt-3.5-turbo
 - 触发后平台无更新：确认 Hook URL 是否正确、是否有权限、是否已在平台项目内启用自动构建。
 - 只想部署单端：使用手动触发并选择 `target`。
 
+## Vercel 部署指南
+
+如需将前端部署到 Vercel（并与后端服务联调），请查看：
+
+- `docs/DEPLOY_VERCEL.md`
+- `docs/DEPLOY_BACKEND.md`
+
 ## License
 
 MIT

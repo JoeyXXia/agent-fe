@@ -50,7 +50,7 @@ app.use(errorHandler)
 async function main() {
   await initDB()
   const server = http.createServer(app)
-  attachYjsWebSocket(server)
+  await attachYjsWebSocket(server)
   server.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT} (HTTP + /yjs WebSocket)`)
   })
