@@ -50,7 +50,18 @@ app.use(errorHandler)
 async function main() {
   await initDB()
   const server = http.createServer(app)
-  await attachYjsWebSocket(server)
+  const disableYjs =
+    process.env['DISABLE_YJS'] === '1' || String(process.env['DISABLE_YJS']).toLowerCase() === 'true'
+  if (!disableYjs) {
+    try {
+      await attachYjsWebSocket(server)
+      console.log('Yjs WebSocket enabled at /yjs')
+    } catch (err) {
+      console.error('Yjs WebSocket init failed, continue without collaboration:', err)
+    }
+  } else {
+    console.log('Yjs WebSocket disabled by DISABLE_YJS')
+  }
   server.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT} (HTTP + /yjs WebSocket)`)
   })
@@ -58,5 +69,8 @@ async function main() {
 
 // 测试环境由 Vitest 注入 VITEST，避免启动监听与初始化 DB（健康检查路由不依赖 DB）
 if (process.env['VITEST'] !== 'true') {
-  main().catch(console.error)
+  main().catch((err) => {
+    console.error('Fatal startup error:', err)
+    process.exit(1)
+  })
 }
