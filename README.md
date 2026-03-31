@@ -303,6 +303,37 @@ AI_MODEL=gpt-3.5-turbo
 
 前端（可选）：`VITE_AGENT_USE_LLM=false` 时 Agent 工作台**仅**使用浏览器内本地 ReAct（不请求 `/api/agent/chat`）；默认开启，需已登录且服务端 `AI_*` 已配置。
 
+## CI/CD（GitHub Actions）
+
+项目已内置两条工作流：
+
+- `CI`：在 `push/pull_request -> main` 且改动 `client/**`、`server/**`、`.github/workflows/**` 时触发，执行双包构建与测试门禁。
+- `CD`：在 `CI` 成功后自动触发（仅 `main`），或支持手动触发 `workflow_dispatch`（可选 `both/client/server`）。
+
+### 1) 配置仓库 Secrets
+
+进入 GitHub 仓库 `Settings -> Secrets and variables -> Actions`，按你的部署平台添加以下任意项：
+
+- 后端（至少配置一个）
+  - `RENDER_DEPLOY_HOOK_URL`
+  - `RAILWAY_DEPLOY_HOOK_URL`
+- 前端（至少配置一个）
+  - `VERCEL_DEPLOY_HOOK_URL`
+  - `NETLIFY_BUILD_HOOK_URL`
+
+未配置对应 Hook 时，CD 会自动跳过该端部署，不会让工作流失败。
+
+### 2) 触发方式
+
+- 自动触发：代码合入 `main` 后，`CI` 通过会自动触发 `CD`。
+- 手动触发：GitHub `Actions -> CD -> Run workflow`，选择 `target` 为 `both/client/server`。
+
+### 3) 常见排查
+
+- `CD` 没触发：确认 `CI` 是否成功，且分支为 `main`。
+- 触发后平台无更新：确认 Hook URL 是否正确、是否有权限、是否已在平台项目内启用自动构建。
+- 只想部署单端：使用手动触发并选择 `target`。
+
 ## License
 
 MIT

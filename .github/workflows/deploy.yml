@@ -1,0 +1,81 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Deploy target"
+        required: true
+        default: "both"
+        type: choice
+        options:
+          - both
+          - client
+          - server
+
+concurrency:
+  group: cd-main
+  cancel-in-progress: true
+
+jobs:
+  deploy-server:
+    if: |
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.target == 'both' || inputs.target == 'server'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger server deploy hooks
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RAILWAY_DEPLOY_HOOK_URL: ${{ secrets.RAILWAY_DEPLOY_HOOK_URL }}
+        run: |
+          set -e
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ] && [ -z "$RAILWAY_DEPLOY_HOOK_URL" ]; then
+            echo "No server deploy hook configured. Skip server deployment."
+            exit 0
+          fi
+
+          if [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "Trigger Render deployment..."
+            curl -fsSL -X POST "$RENDER_DEPLOY_HOOK_URL" >/dev/null
+          fi
+
+          if [ -n "$RAILWAY_DEPLOY_HOOK_URL" ]; then
+            echo "Trigger Railway deployment..."
+            curl -fsSL -X POST "$RAILWAY_DEPLOY_HOOK_URL" >/dev/null
+          fi
+
+  deploy-client:
+    if: |
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.target == 'both' || inputs.target == 'client'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger client deploy hooks
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
+        run: |
+          set -e
+          if [ -z "$VERCEL_DEPLOY_HOOK_URL" ] && [ -z "$NETLIFY_BUILD_HOOK_URL" ]; then
+            echo "No client deploy hook configured. Skip client deployment."
+            exit 0
+          fi
+
+          if [ -n "$VERCEL_DEPLOY_HOOK_URL" ]; then
+            echo "Trigger Vercel deployment..."
+            curl -fsSL -X POST "$VERCEL_DEPLOY_HOOK_URL" >/dev/null
+          fi
+
+          if [ -n "$NETLIFY_BUILD_HOOK_URL" ]; then
+            echo "Trigger Netlify deployment..."
+            curl -fsSL -X POST "$NETLIFY_BUILD_HOOK_URL" >/dev/null
+          fi
