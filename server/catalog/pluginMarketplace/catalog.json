@@ -1,1 +1,264 @@
-[]
+[
+  {
+    "id": "com.devstudio.sample-echo",
+    "version": "1.0.0",
+    "displayName": "示例 Echo",
+    "description": "服务端示例插件：回显传入的 message，用于验证插件启用与调用链路。",
+    "runtime": "server",
+    "permissions": ["plugin.invoke"],
+    "author": "AI DevStudio",
+    "category": "示例",
+    "tool": {
+      "name": "pluginSampleEcho",
+      "description": "回显一条文本",
+      "icon": "message",
+      "parameters": [
+        {
+          "name": "message",
+          "type": "string",
+          "description": "要回显的内容",
+          "required": false
+        }
+      ]
+    },
+    "intent": {
+      "type": "plugin_util_echo",
+      "keywords": ["echo", "示例", "测试"]
+    }
+  },
+  {
+    "id": "com.devstudio.calc",
+    "version": "1.0.0",
+    "displayName": "计算器",
+    "description": "安全计算仅含数字与 + - * / ( ) 的算术表达式。",
+    "runtime": "server",
+    "permissions": ["plugin.invoke"],
+    "author": "AI DevStudio",
+    "category": "工具",
+    "tool": {
+      "name": "pluginCalc",
+      "description": "计算算术表达式",
+      "icon": "calculator",
+      "parameters": [
+        {
+          "name": "expression",
+          "type": "string",
+          "description": "表达式，如 (1+2)*3",
+          "required": true
+        }
+      ]
+    },
+    "intent": {
+      "type": "plugin_util_calc",
+      "keywords": ["计算", "算术", "加", "减", "乘", "除", "calc", "math", "表达式"]
+    }
+  },
+  {
+    "id": "com.devstudio.datetime",
+    "version": "1.0.0",
+    "displayName": "日期时间",
+    "description": "返回当前 UTC ISO、本地时间与 Unix 毫秒时间戳。",
+    "runtime": "server",
+    "permissions": ["plugin.invoke"],
+    "author": "AI DevStudio",
+    "category": "工具",
+    "tool": {
+      "name": "pluginDateTime",
+      "description": "获取当前时间",
+      "icon": "clock",
+      "parameters": []
+    },
+    "intent": {
+      "type": "plugin_util_datetime",
+      "keywords": ["时间", "日期", "现在", "timestamp", "time", "date", "iso"]
+    }
+  },
+  {
+    "id": "com.devstudio.codec-base64",
+    "version": "1.0.0",
+    "displayName": "Base64 编解码",
+    "description": "对文本做 Base64 编码或解码。",
+    "runtime": "server",
+    "permissions": ["plugin.invoke"],
+    "author": "AI DevStudio",
+    "category": "工具",
+    "tool": {
+      "name": "pluginBase64",
+      "description": "Base64 编码或解码",
+      "icon": "code",
+      "parameters": [
+        {
+          "name": "mode",
+          "type": "string",
+          "description": "encode 或 decode",
+          "required": true
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "description": "原文或 Base64 字符串",
+          "required": true
+        }
+      ]
+    },
+    "intent": {
+      "type": "plugin_util_base64",
+      "keywords": ["base64", "编码", "解码", "encode", "decode"]
+    }
+  },
+  {
+    "id": "com.devstudio.uuid",
+    "version": "1.0.0",
+    "displayName": "UUID 生成",
+    "description": "生成一个 RFC 4122 v4 随机 UUID。",
+    "runtime": "server",
+    "permissions": ["plugin.invoke"],
+    "author": "AI DevStudio",
+    "category": "工具",
+    "tool": {
+      "name": "pluginUuid",
+      "description": "生成随机 UUID",
+      "icon": "hash",
+      "parameters": []
+    },
+    "intent": {
+      "type": "plugin_util_uuid",
+      "keywords": ["uuid", "guid", "唯一", "随机 id"]
+    }
+  },
+  {
+    "id": "com.devstudio.json-format",
+    "version": "1.0.0",
+    "displayName": "JSON 格式化",
+    "description": "校验并美化 JSON 字符串（2 空格缩进）。",
+    "runtime": "server",
+    "permissions": ["plugin.invoke"],
+    "author": "AI DevStudio",
+    "category": "开发",
+    "tool": {
+      "name": "pluginJsonPretty",
+      "description": "格式化 JSON 文本",
+      "icon": "braces",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string",
+          "description": "原始 JSON 字符串",
+          "required": true
+        }
+      ]
+    },
+    "intent": {
+      "type": "plugin_util_json",
+      "keywords": ["json", "格式化", "pretty", "校验", "lint"]
+    }
+  },
+  {
+    "id": "com.devstudio.mcp-web-search",
+    "version": "1.0.0",
+    "displayName": "网页搜索（MCP）",
+    "description": "联网检索：请在「MCP 扩展」中配置搜索类 MCP 后使用；此处为占位。",
+    "runtime": "mcp",
+    "permissions": ["mcp.network"],
+    "author": "AI DevStudio",
+    "category": "检索",
+    "tool": {
+      "name": "pluginMcpWebSearch",
+      "description": "按关键词搜索网页",
+      "icon": "search",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "description": "搜索关键词",
+          "required": true
+        }
+      ]
+    },
+    "intent": {
+      "type": "plugin_mcp_search",
+      "keywords": ["搜索", "联网", "google", "bing", "search", "查一下"]
+    }
+  },
+  {
+    "id": "com.devstudio.mcp-http-fetch",
+    "version": "1.0.0",
+    "displayName": "HTTP 请求（MCP）",
+    "description": "拉取 URL 内容：请配置支持 fetch 的 MCP；此处为占位。",
+    "runtime": "mcp",
+    "permissions": ["mcp.network"],
+    "author": "AI DevStudio",
+    "category": "网络",
+    "tool": {
+      "name": "pluginMcpHttpFetch",
+      "description": "请求指定 URL",
+      "icon": "globe",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "description": "URL 或请求说明",
+          "required": true
+        }
+      ]
+    },
+    "intent": {
+      "type": "plugin_mcp_fetch",
+      "keywords": ["http", "fetch", "请求", "下载", "url", "api"]
+    }
+  },
+  {
+    "id": "com.devstudio.mcp-git",
+    "version": "1.0.0",
+    "displayName": "Git 操作（MCP）",
+    "description": "仓库状态、提交、分支等：请配置 Git MCP；此处为占位。",
+    "runtime": "mcp",
+    "permissions": ["mcp.git"],
+    "author": "AI DevStudio",
+    "category": "开发",
+    "tool": {
+      "name": "pluginMcpGit",
+      "description": "Git 相关指令说明",
+      "icon": "git-branch",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "description": "想执行的 git 意图描述",
+          "required": true
+        }
+      ]
+    },
+    "intent": {
+      "type": "plugin_mcp_git",
+      "keywords": ["git", "提交", "commit", "分支", "branch", "merge", "diff"]
+    }
+  },
+  {
+    "id": "com.devstudio.mcp-fs",
+    "version": "1.0.0",
+    "displayName": "文件系统（MCP）",
+    "description": "读写项目文件：请配置 filesystem MCP；此处为占位。",
+    "runtime": "mcp",
+    "permissions": ["mcp.fs"],
+    "author": "AI DevStudio",
+    "category": "开发",
+    "tool": {
+      "name": "pluginMcpFs",
+      "description": "文件路径或操作说明",
+      "icon": "folder",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "description": "路径或操作描述",
+          "required": true
+        }
+      ]
+    },
+    "intent": {
+      "type": "plugin_mcp_fs",
+      "keywords": ["文件", "目录", "读取", "写入", "file", "path", "目录树"]
+    }
+  }
+]

@@ -83,8 +83,15 @@
         </article>
       </div>
 
-      <p v-if="!pluginsStore.loading && filtered.length === 0" class="text-center py-12 text-gray-400 text-sm">
-        无匹配插件
+      <p
+        v-if="!pluginsStore.loading && !pluginsStore.error && filtered.length === 0"
+        class="text-center py-12 text-gray-400 text-sm"
+      >
+        {{
+          pluginsStore.marketplace.length === 0 && !q.trim()
+            ? '暂无可用插件'
+            : '无匹配插件'
+        }}
       </p>
     </main>
   </div>
