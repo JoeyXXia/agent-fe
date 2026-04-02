@@ -37,16 +37,24 @@ export type MarketplaceCatalogEntry = {
 
 let cached: MarketplaceCatalogEntry[] | null = null
 
-/** 与编译输出无关：catalog 放在 server/data，便于 tsc 后仍能读取 */
+/**
+ * 目录与 `server/.gitignore` 中的 `data/` 分离：`data/` 仅放本地 DB 等不提交文件；
+ * catalog 放在 `server/catalog/`，随仓库部署，避免生产读盘失败导致 500。
+ */
 function catalogPath() {
-  return path.join(__dirname, '..', '..', 'data', 'pluginMarketplace', 'catalog.json')
+  return path.join(__dirname, '..', '..', 'catalog', 'pluginMarketplace', 'catalog.json')
 }
 
 export function loadMarketplaceCatalog(): MarketplaceCatalogEntry[] {
   if (cached) return cached
-  const raw = fs.readFileSync(catalogPath(), 'utf-8')
-  const parsed = JSON.parse(raw) as MarketplaceCatalogEntry[]
-  cached = Array.isArray(parsed) ? parsed : []
+  try {
+    const raw = fs.readFileSync(catalogPath(), 'utf-8')
+    const parsed = JSON.parse(raw) as MarketplaceCatalogEntry[]
+    cached = Array.isArray(parsed) ? parsed : []
+  } catch (err) {
+    console.warn('[pluginMarketplace] catalog 读取失败，使用空列表:', err)
+    cached = []
+  }
   return cached
 }
 
