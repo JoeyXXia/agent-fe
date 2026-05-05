@@ -16,7 +16,12 @@ router.get('/stats', (req: AuthRequest, res: Response) => {
   const uid = req.userId!
   const total = (get('SELECT COUNT(*) as c FROM notes WHERE user_id = ?', [uid]) as any).c
   const favorites = (get('SELECT COUNT(*) as c FROM notes WHERE user_id = ? AND is_favorite = 1', [uid]) as any).c
-  const withAI = (get('SELECT COUNT(*) as c FROM notes WHERE user_id = ? AND summary != ""', [uid]) as any).c
+  const withAI = (
+    get(
+      "SELECT COUNT(*) as c FROM notes WHERE user_id = ? AND LENGTH(TRIM(COALESCE(summary, ''))) > 0",
+      [uid]
+    ) as any
+  ).c
   const languages = all(
     'SELECT language, COUNT(*) as count FROM notes WHERE user_id = ? GROUP BY language ORDER BY count DESC',
     [uid]
